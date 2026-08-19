@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Colección pública de oportunidades para el dashboard web
+    match /opportunities/{opportunityId} {
+      allow read: if true;
+      allow write: if true; // En producción: if request.auth != null;
+    }
+
+    // Por defecto bloquear cualquier otra colección no especificada
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
+
