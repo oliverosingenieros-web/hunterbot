@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎯 HunterBot — Dashboard de Oportunidades</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+
+  <!-- Navbar -->
+  <header class="border-b border-slate-800 bg-slate-950/70 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-xl shadow-lg shadow-indigo-500/30">
+          🎯
+        </div>
+        <div>
+          <h1 class="text-xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+            HunterBot
+          </h1>
+          <p class="text-xs text-slate-400">Panel de Oportunidades & Chollos</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
+          Conectado a Firebase
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+    <!-- Filters & Stats Bar -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-sm text-slate-400">Total Oportunidades</p>
+          <p id="stat-total" class="text-2xl font-bold text-white mt-1">0</p>
+        </div>
+        <div class="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl">
+          <i class="fa-solid fa-layer-group text-xl"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-sm text-slate-400">Inmuebles (Casas/Terrenos)</p>
+          <p id="stat-real-estate" class="text-2xl font-bold text-cyan-400 mt-1">0</p>
+        </div>
+        <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl">
+          <i class="fa-solid fa-house text-xl"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-sm text-slate-400">Barcos de Ocasión</p>
+          <p id="stat-boats" class="text-2xl font-bold text-amber-400 mt-1">0</p>
+        </div>
+        <div class="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
+          <i class="fa-solid fa-ship text-xl"></i>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4 flex items-center justify-between">
+        <div>
+          <p class="text-sm text-slate-400">Score Medio</p>
+          <p id="stat-avg-score" class="text-2xl font-bold text-emerald-400 mt-1">0.0</p>
+        </div>
+        <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+          <i class="fa-solid fa-star text-xl"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Category Tabs -->
+    <div class="flex space-x-2 border-b border-slate-800 pb-4 mb-6">
+      <button onclick="filterCategory('all')" id="tab-all" class="px-4 py-2 rounded-xl text-sm font-medium bg-indigo-600 text-white shadow-lg shadow-indigo-600/30">
+        Todos
+      </button>
+      <button onclick="filterCategory('real_estate')" id="tab-real_estate" class="px-4 py-2 rounded-xl text-sm font-medium bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700">
+        🏠 Inmuebles
+      </button>
+      <button onclick="filterCategory('boat')" id="tab-boat" class="px-4 py-2 rounded-xl text-sm font-medium bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700">
+        ⛵ Barcos
+      </button>
+      <button onclick="filterCategory('product')" id="tab-product" class="px-4 py-2 rounded-xl text-sm font-medium bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700">
+        📦 Productos
+      </button>
+    </div>
+
+    <!-- Opportunities Grid -->
+    <div id="grid-opportunities" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <!-- Loading placeholder -->
+      <div class="col-span-full py-16 text-center text-slate-500">
+        <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-3 text-indigo-500"></i>
+        <p>Cargando oportunidades en tiempo real...</p>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
