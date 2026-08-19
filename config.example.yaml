@@ -1,0 +1,63 @@
+# ══════════════════════════════════════════════════════════════
+# 🎯 HunterBot — Archivo de Configuración de Ejemplo
+# ══════════════════════════════════════════════════════════════
+
+providers:
+  idealista:
+    enabled: true
+    api_key: ""          # Introduce tu API Key de Idealista cuando te la aprueben
+    api_secret: ""       # Introduce tu API Secret de Idealista
+
+  fotocasa:
+    enabled: true        # 100% gratuito (scraping ligero)
+
+  pisos_com:
+    enabled: true        # 100% gratuito (scraping ligero)
+
+  amazon:
+    enabled: true        # 100% gratuito
+    domain: "amazon.es"
+
+  wallapop:
+    enabled: true        # 100% gratuito (API pública/interna)
+
+  web_search:
+    enabled: true        # 100% gratuito (DuckDuckGo)
+
+  topbarcos:
+    enabled: true        # 100% gratuito (portales náuticos)
+
+  cosasdebarcos:
+    enabled: true
+
+  boat24:
+    enabled: true
+
+# ─── Configuración de Notificaciones en Telegram ──────────────
+notifications:
+  telegram:
+    enabled: false
+    bot_token: ""            # Token creado con @BotFather en Telegram
+    group_chat_id: ""        # ID de tu supergrupo o canal
+    min_score: 7.5           # Alerta solo de muy buenas oportunidades (score >= 7.5)
+    
+    # Mapeo de proyectos a hilos (Topics) dentro de tu supergrupo de Telegram:
+    topics:
+      "inmuebles_malaga": 102
+      "barcos_baleares": 105
+      "chollos_amazon": 110
+
+# ─── Ponderaciones de Scoring (1-10) ──────────────────────────
+scoring:
+  real_estate:
+    price_vs_zone_avg: 0.35
+    price_per_m2: 0.25
+    price_reduction: 0.25
+    listing_quality: 0.15
+
+  products:
+    discount_percent: 0.40
+    product_rating: 0.30
+    price_vs_category_avg: 0.30
+
+  opportunity_threshold: 6.5
