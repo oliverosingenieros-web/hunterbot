@@ -50,8 +50,12 @@ class ScoringEngine:
                 reasons.append(f"{diff_pct:.1f}% más barato que la media de la zona")
             elif diff_pct < -15:
                 reasons.append(f"{abs(diff_pct):.1f}% más caro que la media")
+        elif item.price > 0:
+            # Sin stats pero con precio → base razonable
+            factors["price_vs_zone_avg"] = 0.6
+            reasons.append("Precio publicado disponible")
         else:
-            factors["price_vs_zone_avg"] = 0.5
+            factors["price_vs_zone_avg"] = 0.4
 
         # Factor 2: Precio por m²
         if stats and stats.avg_price_per_m2 and item.price_per_m2:
