@@ -143,25 +143,28 @@ class InteractiveTelegramBot:
         try:
             results = await engine.search_all(criteria, project_name=project_name)
             filtered = [r for r in results if r.score >= self.cfg.opportunity_threshold]
+            if not filtered and results:
+                filtered = results[:4]
 
             if not filtered:
                 await self.send_message(
                     chat_id,
-                    f"🔍 He rastreado la red pero no encontré chollos inmediatos con puntuación >= {self.cfg.opportunity_threshold}.\n\n"
+                    f"🔍 He rastreado la red para '{criteria.query or criteria.location}'. No he detectado anuncios activos con precio en rango de forma inmediata.\n\n"
                     f"💬 *Siguiente paso:* Puedes pedirme ampliar el presupuesto o buscar en zonas cercanas respondiendo aquí mismo.",
                     target_thread,
                 )
             else:
-                summary = f"🎉 *He encontrado {len(filtered)} oportunidades destacadas:*\n\n"
+                summary = f"🎉 *He encontrado {len(filtered)} opciones y oportunidades:*\n\n"
                 for opp in filtered[:5]:
                     item = opp.item
-                    price_fmt = f"{item.price:,.0f} €".replace(",", ".")
-                    summary += f"{opp.emoji} *[{opp.score}/10]* [{item.title[:45]}]({item.url}) — *{price_fmt}*\n"
+                    price_fmt = f"{item.price:,.0f} €".replace(",", ".") if item.price > 0 else "Consultar precio"
+                    summary += f"{opp.emoji} *[{opp.score:.1f}/10]* [{item.title[:45]}]({item.url}) — *{price_fmt}*\n"
 
                 summary += "\n💬 _Puedes pedirme más detalles de cualquiera de ellos o seguir afinando en este tema._"
                 await self.send_message(chat_id, summary, target_thread)
         finally:
             await engine.close()
+
 
 
     async def run(self) -> None:
