@@ -239,7 +239,8 @@ def load_config(path: Path | str | None = None) -> HunterConfig:
     if path is not None:
         config_path = Path(path)
         if not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
+            # No crashear — usar defaults (necesario para Cloud Functions)
+            config_path = None
     else:
         for candidate in DEFAULT_CONFIG_PATHS:
             if candidate.exists():
@@ -247,7 +248,7 @@ def load_config(path: Path | str | None = None) -> HunterConfig:
                 break
 
     # Cargar YAML o usar defaults
-    if config_path is not None:
+    if config_path is not None and yaml is not None:
         with open(config_path, encoding="utf-8") as f:
             user_config = yaml.safe_load(f) or {}
     else:
