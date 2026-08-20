@@ -42,16 +42,16 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         message = data["message"]
 
         async def _handle():
-            import os
-            cfg_path = "config.yaml" if os.path.exists("config.yaml") else os.path.join(os.path.dirname(__file__), "config.yaml")
-            bot = InteractiveTelegramBot(cfg_path)
+            # config.yaml no existe en Cloud Functions, load_config usará defaults
+            bot = InteractiveTelegramBot("config.yaml")
             await bot.process_message(message)
 
         asyncio.run(_handle())
         return https_fn.Response("OK", status=200)
     except Exception as e:
-        logger.error("Error en webhook de Telegram: %s", e)
-        return https_fn.Response(f"Error: {e}", status=500)
+        logger.error("Error en webhook de Telegram: %s", e, exc_info=True)
+        # Devolver 200 para que Telegram no reenvíe el mensaje
+        return https_fn.Response("OK", status=200)
 
 
 @scheduler_fn.on_schedule(
@@ -77,26 +77,30 @@ def scheduled_hunter(event: scheduler_fn.ScheduledEvent) -> None:
                 price_max=300000,
                 operation=Operation.SALE,
             )
-            res_casa = await engine.search_all(criteria_casa, project_name="Casa")
+            await engine.search_all(criteria_casa, project_name="Casa")
 
             # 2. Buscar barcos
             criteria_barco = SearchCriteria(
                 category=ItemCategory.BOAT,
                 query="velero",
             )
-            res_barco = await engine.search_all(criteria_barco, project_name="Barco")
+            await engine.search_all(criteria_barco, project_name="Barco")
 
             # 3. Reporte semanal con IA
             top_items = engine.db.get_items(limit=10)
-            items_data = [i.__dict__ for i in top_items]
+            items_data = [
+                {"title": i.title, "price": i.price, "location": i.location, "provider": i.provider}
+                for i in top_items
+            ]
             report = await ai.generate_weekly_report(items_data)
 
             # Notificar resumen general
-            bot = InteractiveTelegramBot("config.yaml")
-            await bot.send_message(
-                chat_id=cfg.telegram.group_chat_id,
-                text=f"📅 *REPORTE AUTOMÁTICO SEMANAL CON IA*\n\n{report}",
-            )
+            if cfg.telegram.bot_token and cfg.telegram.group_chat_id:
+                bot = InteractiveTelegramBot("config.yaml")
+                await bot.send_message(
+                    chat_id=cfg.telegram.group_chat_id,
+                    text=f"📅 REPORTE AUTOMÁTICO SEMANAL\n\n{report}",
+                )
         finally:
             await engine.close()
 
