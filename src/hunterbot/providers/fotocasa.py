@@ -32,6 +32,12 @@ class FotocasaProvider(BaseProvider):
         """Busca inmuebles en Fotocasa."""
         op_path = "comprar" if criteria.operation == Operation.SALE else "alquiler"
         loc = (criteria.location or "espana").lower().strip().replace(" ", "-")
+        
+        # Eliminar acentos para la URL
+        replacements = {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}
+        for a, b in replacements.items():
+            loc = loc.replace(a, b)
+        
         prop_type = "viviendas"
         if criteria.property_types and "lands" in criteria.property_types:
             prop_type = "terrenos"
@@ -48,7 +54,18 @@ class FotocasaProvider(BaseProvider):
 
         items: list[Item] = []
         try:
-            resp = await self.http.get(url, params=params, rate_limit=self.default_rate_limit)
+            # Headers extra para evitar 403
+            extra_headers = {
+                "Referer": "https://www.google.es/",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
+            resp = await self.http.get(
+                url, params=params, rate_limit=self.default_rate_limit,
+                headers=extra_headers,
+            )
+            if resp.status_code == 403:
+                logger.warning("Fotocasa devolvió 403 (bloqueado). Saltando.")
+                return []
             if resp.status_code != 200:
                 logger.warning("Fotocasa returned status %d", resp.status_code)
                 return []
@@ -89,9 +106,9 @@ class FotocasaProvider(BaseProvider):
 
             # Fallback a parseo de tarjetas HTML directas
             if not items:
-                articles = parser.css("article.re-Card") or parser.css(".re-CardPackMinimal")
+                articles = parser.css("article.re-Card") or parser.css(".re-CardPackMinimal") or parser.css("[class*='re-Card']")
                 for art in articles:
-                    link_el = art.css_first("a.re-Card-link") or art.css_first("a")
+                    link_el = art.css_first("a.re-Card-link") or art.css_first("a[href*='/inmueble/']") or art.css_first("a")
                     price_el = art.css_first(".re-CardPrice") or art.css_first("[class*='Price']")
                     title_el = art.css_first(".re-Card-title") or art.css_first("[class*='Title']")
 
@@ -121,4 +138,5 @@ class FotocasaProvider(BaseProvider):
         except Exception as e:
             logger.error("Error scrapeando Fotocasa: %s", e)
 
+        logger.info("Fotocasa: %d resultados encontrados", len(items))
         return items
