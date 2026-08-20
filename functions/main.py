@@ -42,7 +42,9 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
         message = data["message"]
 
         async def _handle():
-            bot = InteractiveTelegramBot("config.yaml")
+            import os
+            cfg_path = "config.yaml" if os.path.exists("config.yaml") else os.path.join(os.path.dirname(__file__), "config.yaml")
+            bot = InteractiveTelegramBot(cfg_path)
             await bot.process_message(message)
 
         asyncio.run(_handle())
