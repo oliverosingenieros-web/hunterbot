@@ -51,7 +51,7 @@ class HunterAIAdvisor:
                 headers={"Content-Type": "application/json"},
             )
             try:
-                with urllib.request.urlopen(req, timeout=25) as resp:
+                with urllib.request.urlopen(req, timeout=50) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     candidates = data.get("candidates", [])
                     if candidates:
