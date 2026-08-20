@@ -29,14 +29,23 @@ class BaseProvider(ABC):
         self.provider_config: ProviderConfig | None = config.get_provider(self.name)
 
     def is_configured(self) -> bool:
-        """Comprueba si el provider está habilitado y correctamente configurado."""
-        if self.provider_config is None:
-            return False
-        if not self.provider_config.enabled:
-            return False
-        if self.requires_api_key:
-            return bool(self.provider_config.get("api_key"))
-        return True
+        """Comprueba si el provider está habilitado y correctamente configurado.
+        
+        Si no hay config.yaml (caso Cloud Functions), los providers que NO
+        requieren API key se consideran activos por defecto.
+        """
+        if self.provider_config is not None:
+            # Hay configuración explícita: respetar enabled/disabled
+            if not self.provider_config.enabled:
+                return False
+            if self.requires_api_key:
+                return bool(self.provider_config.get("api_key"))
+            return True
+
+        # Sin configuración explícita:
+        # - Providers que NO necesitan API key → activos por defecto
+        # - Providers que SÍ necesitan API key → desactivados
+        return not self.requires_api_key
 
     @abstractmethod
     async def search(self, criteria: SearchCriteria) -> list[Item]:
