@@ -11,7 +11,6 @@ from hunterbot.config import HunterConfig
 from hunterbot.database import Database
 from hunterbot.http_client import HunterHTTPClient
 from hunterbot.models import Item, ItemCategory, OpportunityScore, SearchCriteria, ZoneStats
-from hunterbot.notifications import TelegramNotifier
 from hunterbot.providers import create_active_providers
 from hunterbot.providers.base import BaseProvider
 from hunterbot.scoring import ScoringEngine
@@ -28,7 +27,6 @@ class HunterEngine:
         self.db.connect()
         self.http = HunterHTTPClient(respect_robots=config.respect_robots_txt)
         self.scoring = ScoringEngine(config)
-        self.notifier = TelegramNotifier(config, self.http)
         self.providers: list[BaseProvider] = create_active_providers(config, self.http)
 
     async def close(self) -> None:
@@ -53,19 +51,45 @@ class HunterEngine:
             ]
 
         if not target_providers:
-            logger.warning("No hay providers activos para la búsqueda")
+            logger.warning("No hay providers activos para la búsqueda (categoría=%s)", criteria.category)
             return []
 
+        logger.info(
+            "Lanzando búsqueda en %d providers: %s",
+            len(target_providers),
+            [p.name for p in target_providers],
+        )
+
+        # Ejecutar en paralelo, capturando excepciones individuales
         tasks = [p.search(criteria) for p in target_providers]
-        results_nested: Sequence[list[Item]] = await asyncio.gather(*tasks, return_exceptions=False)
+        results_nested = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_items: list[Item] = []
-        for res in results_nested:
-            all_items.extend(res)
+        for i, res in enumerate(results_nested):
+            if isinstance(res, Exception):
+                logger.error(
+                    "Error en provider '%s': %s",
+                    target_providers[i].name,
+                    res,
+                )
+            elif isinstance(res, list):
+                all_items.extend(res)
+
+        logger.info("Total items encontrados: %d", len(all_items))
+
+        if not all_items:
+            return []
 
         # 1. Guardar en SQLite y registrar historial
-        self.db.upsert_items(all_items)
-        self.db.log_search(criteria.__dict__, criteria.provider, len(all_items))
+        try:
+            self.db.upsert_items(all_items)
+            self.db.log_search(
+                {"query": criteria.query, "category": str(criteria.category), "location": criteria.location},
+                criteria.provider,
+                len(all_items),
+            )
+        except Exception as e:
+            logger.error("Error guardando en DB: %s", e)
 
         # 2. Calcular estadísticas de zona si aplica
         zone_stats: ZoneStats | None = None
@@ -77,12 +101,15 @@ class HunterEngine:
                 items=all_items,
             )
             if zone_stats:
-                self.db.save_zone_stats(
-                    zone=criteria.location,
-                    category=ItemCategory.REAL_ESTATE.value,
-                    provider="aggregate",
-                    stats=zone_stats.__dict__,
-                )
+                try:
+                    self.db.save_zone_stats(
+                        zone=criteria.location,
+                        category=ItemCategory.REAL_ESTATE.value,
+                        provider="aggregate",
+                        stats=zone_stats.__dict__,
+                    )
+                except Exception as e:
+                    logger.error("Error guardando zone stats: %s", e)
 
         # 3. Calcular Scoring
         scored: list[OpportunityScore] = []
@@ -98,15 +125,14 @@ class HunterEngine:
             from hunterbot.database_firebase import FirestoreDatabase
             fs_db = FirestoreDatabase()
             if fs_db.enabled:
-                for opp in scored:
+                for opp in scored[:10]:  # Limitar a top 10
                     if opp.score >= self.config.opportunity_threshold:
                         fs_db.save_opportunity(opp)
         except Exception:
-            pass
+            pass  # Firestore es opcional
 
-        # 5. Notificar por Telegram chollos detectados
-        for opp in scored:
-            if opp.score >= self.config.opportunity_threshold:
-                await self.notifier.notify_opportunity(opp, project_name=project_name)
+        # NOTA: NO enviamos notificaciones Telegram desde el engine.
+        # Las notificaciones las gestiona telegram_bot.py directamente
+        # para evitar mensajes duplicados.
 
         return scored
