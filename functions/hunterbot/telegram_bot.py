@@ -28,7 +28,7 @@ _processed_in_memory: set[str] = set()
 
 
 def _get_portal_direct_links(category: ItemCategory, query: str | None, location: str | None) -> str:
-    """Genera accesos directos con filtros precargados a los portales líderes."""
+    """Genera accesos directos con filtros precargados a los portales líderes según la categoría."""
     terms = " ".join(filter(None, [query, location])).strip()
     encoded = urllib.parse.quote_plus(terms)
 
@@ -43,18 +43,26 @@ def _get_portal_direct_links(category: ItemCategory, query: str | None, location
         )
     elif category == ItemCategory.REAL_ESTATE:
         loc_clean = (location or "espana").lower().replace(" ", "-")
+        if "," in loc_clean:
+            loc_clean = loc_clean.split(",")[0].strip()
         return (
             "🏠 ACCESOS DIRECTOS A PORTALES INMOBILIARIOS:\n"
             f"• Idealista: https://www.idealista.com/buscar/venta-viviendas/{loc_clean}/?k={encoded}\n"
-            f"• Fotocasa: https://www.fotocasa.es/es/comprar/viviendas/{loc_clean}/l?combinedLocationIds={encoded}\n"
-            f"• Pisos.com: https://www.pisos.com/venta/pisos-{loc_clean}/?kw={encoded}\n"
+            f"• Fotocasa: https://www.fotocasa.es/es/comprar/terrenos/{loc_clean}/todas-las-zonas/l\n"
+            f"• Pisos.com: https://www.pisos.com/venta/terrenos-{loc_clean}/\n"
+            f"• Habitaclia: https://www.habitaclia.com/terrenos_y_solares-{loc_clean}.htm\n"
             f"• Milanuncios Inmobiliaria: https://www.milanuncios.com/inmobiliaria/{encoded}.htm"
         )
     else:
+        # CATEGORÍA PRODUCTOS / INFORMÁTICA / DEPORTES / MODA
         return (
-            "🛍️ ACCESOS DIRECTOS:\n"
-            f"• Wallapop: https://es.wallapop.com/app/search?keywords={encoded}\n"
-            f"• Milanuncios: https://www.milanuncios.com/anuncios/{encoded}.htm"
+            "🛍️ ACCESOS DIRECTOS Y COMPARADORES DE PRECIO:\n"
+            f"• Idealo (Comparador): https://www.idealo.es/precios/{encoded}.html\n"
+            f"• Chollometro (Chollos): https://www.chollometro.com/search?q={encoded}\n"
+            f"• PcComponentes: https://www.pccomponentes.com/buscar/?query={encoded}\n"
+            f"• Amazon España: https://www.amazon.es/s?k={encoded}\n"
+            f"• MediaMarkt: https://www.mediamarkt.es/es/search.html?query={encoded}\n"
+            f"• Wallapop: https://es.wallapop.com/app/search?keywords={encoded}"
         )
 
 
@@ -206,7 +214,7 @@ class InteractiveTelegramBot:
         if interval_days > 0:
             crit_dict = context_dict.get("criteria", {})
             criteria = SearchCriteria(
-                category=ItemCategory(crit_dict.get("category", "boat")),
+                category=ItemCategory(crit_dict.get("category", "product")),
                 query=crit_dict.get("query"),
                 location=crit_dict.get("location"),
                 price_max=crit_dict.get("price_max"),
@@ -234,7 +242,6 @@ class InteractiveTelegramBot:
         if not text or not chat_id:
             return
 
-        # Deduplicación: Si Telegram reenvió el webhook por timeout, descartar
         dedup_key = f"{chat_id}_{message_id}"
         if dedup_key in _processed_in_memory:
             logger.info("⏭️ Mensaje duplicado en memoria omitido: %s", dedup_key)
@@ -254,22 +261,16 @@ class InteractiveTelegramBot:
         if text.startswith("/start") or text.startswith("/help"):
             await self.send_message(
                 chat_id,
-                "🎯 ¡Hola! Soy HunterBot, tu asesor náutico e inmobiliario con IA.\n\n"
-                "Escríbeme lo que buscas en lenguaje natural:\n"
-                '  "Busca lanchas Zar Formenti de ocasión"\n'
-                '  "Parcela en Málaga por menos de 80.000€"\n'
-                '  "Veleros de 12 metros en Alicante"\n\n'
-                "Yo haré:\n"
-                "1. Abriré un tema dedicado para tu búsqueda\n"
-                "2. Te daré un asesoramiento técnico y rangos de precios de mercado\n"
-                "3. Rastrearé anuncios reales en portales especializados\n"
-                "4. Analizaré los anuncios para darte recomendaciones de compra\n"
-                "5. Podrás pedirme que siga buscando de forma recurrente dentro del tema (ej. 'sigue buscando cada 10 días').",
+                "🎯 ¡Hola! Soy HunterBot, tu asesor inteligente de compras e inversiones con IA.\n\n"
+                "Rastreo selectivamente según lo que busques:\n"
+                '• Barcos: "Lanchas Zar Formenti de ocasión" (Cosasdebarcos, Topbarcos, Boat24...)\n'
+                '• Inmobiliaria: "Terrenos en Foz por menos de 50.000€" (Idealista, Fotocasa, Pisos.com...)\n'
+                '• Productos / Chollos: "Zapatillas Nike Pegasus 40" o "Portátil i7 16GB" (Idealo, Chollometro, Amazon, PcComponentes...)\n\n'
+                "Sólo se activarán las fuentes especializadas para tu tipo de consulta.",
                 thread_id,
             )
             return
 
-        # Petición de reporte manual dentro del tema
         if text.startswith("/reporte") or "dame un reporte" in text.lower() or "reporte actual" in text.lower():
             if thread_id:
                 await self._generate_topic_report(chat_id, thread_id)
@@ -281,7 +282,6 @@ class InteractiveTelegramBot:
         is_general = not thread_id or thread_id == 1
         topic_key = f"{chat_id}:{thread_id}"
 
-        # Si el usuario pide desactivar la búsqueda recurrente en el hilo
         if not is_general and ("detener" in text.lower() or "cancelar alerta" in text.lower() or "parar búsqueda" in text.lower()):
             if self.db.enabled:
                 doc_id = f"{chat_id}_{thread_id}"
@@ -326,7 +326,7 @@ class InteractiveTelegramBot:
 
         crit_dict = context_data.get("criteria", {})
         criteria = SearchCriteria(
-            category=ItemCategory(crit_dict.get("category", "boat")),
+            category=ItemCategory(crit_dict.get("category", "product")),
             query=crit_dict.get("query", query),
             location=crit_dict.get("location"),
             price_max=crit_dict.get("price_max"),
@@ -348,7 +348,7 @@ class InteractiveTelegramBot:
             await engine.close()
 
     async def _handle_new_search(self, chat_id: int, text: str, thread_id: int | None, is_general: bool) -> None:
-        """Ejecuta una nueva búsqueda completa con asesoramiento experto."""
+        """Ejecuta una nueva búsqueda completa activando únicamente las webs especializadas para la categoría."""
         try:
             consult = await self.ai.consult_and_parse(text)
         except Exception as e:
@@ -373,18 +373,24 @@ class InteractiveTelegramBot:
                     thread_id,
                 )
 
-        # 1. Publicar diagnóstico y asesoramiento inicial
+        # 1. Diagnóstico de mercado en el hilo
         tags_str = " ".join(tags)
+        cat_label = {
+            ItemCategory.BOAT: "🚢 Portales náuticos",
+            ItemCategory.REAL_ESTATE: "🏠 Portales inmobiliarios",
+            ItemCategory.PRODUCT: "🛍️ Comparadores y tiendas de producto (Idealo, Chollometro, Amazon...)",
+        }.get(criteria.category, "🌐 Fuentes especializadas")
+
         await self.send_message(
             chat_id,
             f"🧠 ASESORAMIENTO EXPERTO HUNTERBOT\n"
             f"🏷️ {tags_str}\n\n"
             f"💡 Diagnóstico de Mercado:\n{advice}\n\n"
-            f"🔎 Rastreando portales especializados en tiempo real...",
+            f"🔎 Activando rastreo especializado en: {cat_label}...",
             target_thread,
         )
 
-        # 2. Ejecutar rastreo
+        # 2. Ejecución dirigida por categoría
         engine = HunterEngine(self.cfg)
         try:
             results = await engine.search_all(criteria)
@@ -398,18 +404,18 @@ class InteractiveTelegramBot:
                 query_desc = criteria.query or criteria.location or "tu búsqueda"
                 no_results_msg = (
                     f"🔍 RASTREO DIRECTO:\n"
-                    f"No se detectaron anuncios indexados recientemente para '{query_desc}'.\n\n"
+                    f"No se detectaron ofertas destacadas indexadas recientemente para '{query_desc}'.\n\n"
                     f"{portal_links}\n\n"
-                    f"💬 Si quieres que siga buscando periódicamente, puedes decirme: 'sigue buscando cada 10 días' o 'avísame semanalmente'."
+                    f"💬 Puedes consultar los comparadores anteriores o pedirme buscar con otro modelo/marca."
                 )
                 await self.send_message(chat_id, no_results_msg, target_thread)
                 return
 
-            # 3. Formatear y mostrar resultados encontrados
+            # 3. Mostrar ofertas encontradas
             results_text, items_for_ai = self._format_results(filtered)
             await self.send_message(
                 chat_id,
-                f"🎯 OFERTAS ENCONTRADAS ({len(filtered)} unidades indexadas):\n\n"
+                f"🎯 OFERTAS ENCONTRADAS ({len(filtered)} opciones):\n\n"
                 f"{results_text}\n\n"
                 f"{portal_links}",
                 target_thread,
@@ -425,7 +431,7 @@ class InteractiveTelegramBot:
                     target_thread,
                 )
 
-            # 5. Guardar contexto estructurado del hilo
+            # 5. Guardar contexto
             topic_key = f"{chat_id}:{target_thread}"
             _topic_context[topic_key] = {
                 "query": text,
@@ -442,7 +448,7 @@ class InteractiveTelegramBot:
             logger.error("Error en búsqueda: %s", e, exc_info=True)
             await self.send_message(
                 chat_id,
-                "⚠️ Error al rastrear los portales. Inténtalo de nuevo en unos segundos.",
+                "⚠️ Error al rastrear las fuentes. Inténtalo de nuevo en unos segundos.",
                 target_thread,
             )
         finally:
