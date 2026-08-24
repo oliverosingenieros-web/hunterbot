@@ -14,7 +14,7 @@ from hunterbot.models import ItemCategory, Operation, SearchCriteria
 
 logger = logging.getLogger(__name__)
 
-# Modelos que funcionan con la API key actual (verificado)
+# Modelos disponibles verificados
 MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
 
 
@@ -37,7 +37,7 @@ class HunterAIAdvisor:
         return bool(self.api_key)
 
     def _call_model(self, prompt: str) -> str:
-        """Ejecuta una petición REST al modelo de IA de Google."""
+        """Ejecuta una petición REST al modelo de IA de Google asegurando español."""
         for model_name in MODELS:
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -46,7 +46,7 @@ class HunterAIAdvisor:
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": 0.7,
+                    "temperature": 0.4,
                     "maxOutputTokens": 1500,
                 },
             }
@@ -110,35 +110,26 @@ class HunterAIAdvisor:
         return {}
 
     async def consult_and_parse(self, user_prompt: str) -> dict[str, Any]:
-        """Analiza la petición del usuario con IA."""
+        """Analiza la petición del usuario con IA (100% en español)."""
         if not self.is_available:
             return self._fallback_consult(user_prompt)
 
         prompt = (
-            "Eres HunterBot AI, un asesor experto en inversiones inmobiliarias, "
-            "embarcaciones y productos. Analiza la petición y responde SOLO con un JSON "
-            "(sin texto antes ni después).\n\n"
-            "Estructura exacta:\n"
+            "Eres HunterBot AI, un asesor experto en inversiones náuticas e inmobiliarias en España.\n"
+            "IMPORTANTE: Tu respuesta debe estar 100% en ESPAÑOL.\n"
+            "Analiza la petición del usuario y responde ÚNICAMENTE con un JSON válido con esta estructura:\n"
             '{\n'
-            '  "topic_title": "emoji + título corto (max 35 chars)",\n'
+            '  "topic_title": "emoji + título en español (máx 35 caracteres)",\n'
             '  "tags": ["#Tag1", "#Tag2", "#Tag3"],\n'
-            '  "advice": "Diagnóstico experto de mercado en 2-3 líneas en español. '
-            'Incluye datos útiles: rangos de precio habituales, qué zonas son mejores, '
-            'qué vigilar, consejos de negociación.",\n'
+            '  "advice": "Diagnóstico de mercado detallado en español: rangos de precios habituales de segunda mano según modelo/eslora, puntos críticos de inspección y consejo de compra.",\n'
             '  "category": "real_estate" | "boat" | "product",\n'
-            '  "location": "Ciudad/provincia" o null,\n'
+            '  "location": "Ciudad o zona en España" o null,\n'
             '  "query": "Término clave de búsqueda" o null,\n'
             '  "price_max": número o null,\n'
             '  "price_min": número o null,\n'
             '  "property_types": ["lands"] | ["homes"] | ["premises"] o null,\n'
-            '  "project_name": "Casa" | "Barco" | "Producto"\n'
+            '  "project_name": "Barco" | "Casa" | "Producto"\n'
             '}\n\n'
-            "Reglas:\n"
-            "- Si piden terreno/parcela/finca: property_types=[\"lands\"], category=\"real_estate\"\n"
-            "- Si piden casa/piso/chalet: property_types=[\"homes\"], category=\"real_estate\"\n"
-            "- Si piden barco/velero/lancha (incluye marcas como Zar, Beneteau, Jeanneau): category=\"boat\"\n"
-            "- Cualquier otro: category=\"product\"\n"
-            "- El advice debe ser ÚTIL y ESPECÍFICO, no genérico\n\n"
             f"Petición del usuario: '{user_prompt}'"
         )
 
@@ -170,62 +161,52 @@ class HunterAIAdvisor:
         }
 
     async def analyze_results(self, user_query: str, results: list[dict[str, Any]]) -> str:
-        """Analiza los resultados encontrados y da una opinión experta.
-        
-        Esta es la función clave: convierte una lista de anuncios en
-        un análisis de asesor inmobiliario/náutico profesional.
-        """
+        """Analiza los resultados encontrados y da una recomendación rigurosa en español."""
         if not results:
             return ""
 
         if not self.is_available:
             return self._basic_analysis(results)
 
-        results_text = json.dumps(results[:10], ensure_ascii=False, default=str)
+        results_text = json.dumps(results[:8], ensure_ascii=False, default=str)
 
         prompt = (
-            "Eres un asesor experto de inversiones. El usuario busca: "
-            f"'{user_query}'.\n\n"
-            "He encontrado estos anuncios:\n"
-            f"{results_text}\n\n"
-            "Analiza los resultados y responde en español con:\n"
-            "1. Cuál es la MEJOR opción y por qué (relación calidad-precio)\n"
-            "2. Si algún precio parece sospechosamente bajo (posible estafa)\n"
-            "3. Un consejo de negociación específico\n"
-            "4. Qué debería preguntar el comprador antes de visitar\n\n"
-            "Responde de forma directa y concisa (máx 600 chars). "
-            "No uses markdown. Usa emojis para separar secciones."
+            "Eres un asesor experto en compras e inversiones náuticas e inmobiliarias en España.\n"
+            f"El usuario busca: '{user_query}'.\n\n"
+            f"Opciones indexadas en portales:\n{results_text}\n\n"
+            "Redacta un análisis y recomendación rigurosa obligatoriamente en ESPAÑOL:\n"
+            "1. Resumen de precios detectados y rango razonable de mercado para este tipo de barco/inmueble.\n"
+            "2. Cuál o cuáles de las opciones anteriores ofrecen mejor relación valor/precio.\n"
+            "3. Qué elementos críticos revisar antes de comprar (ej. motorización, flotadores Hypalon, ITB/documentación, remolque).\n"
+            "4. Consejo directo para negociar el precio con el vendedor.\n\n"
+            "Reglas: Responde de forma clara, profesional y directa en ESPAÑOL. No uses Markdown con asteriscos, usa saltos de línea y emojis para estructurar el mensaje."
         )
 
         resp = self._call_model(prompt)
         if resp:
-            # Limpiar y limitar longitud
-            return resp.strip()[:800]
+            # Limpiar posibles asteriscos Markdown
+            clean_resp = resp.replace("**", "").replace("__", "").strip()
+            return clean_resp[:1000]
         return self._basic_analysis(results)
 
     async def chat_followup(self, user_query: str, context: str) -> str:
-        """Responde a una pregunta de seguimiento del usuario sobre resultados previos.
-        
-        Permite conversación natural: "¿cuál me recomiendas?", 
-        "¿ese precio es bueno?", "busca más baratos", etc.
-        """
+        """Responde a preguntas de seguimiento del usuario exclusivamente en español."""
         if not self.is_available:
-            return "No puedo responder sin conexión a la IA. Intenta de nuevo."
+            return "No hay conexión con el servicio de IA en este momento."
 
         prompt = (
-            "Eres HunterBot AI, un asesor experto. El usuario está conversando "
-            "sobre una búsqueda anterior.\n\n"
-            f"Contexto previo:\n{context}\n\n"
+            "Eres HunterBot AI, un asesor experto en náutica e inmuebles.\n"
+            "REGLA ESTRICTA: Responde siempre en ESPAÑOL.\n\n"
+            f"Contexto de la conversación:\n{context}\n\n"
             f"Pregunta del usuario: '{user_query}'\n\n"
-            "Responde de forma útil, directa y en español. "
-            "Si el usuario pide buscar algo diferente, dile que escriba "
-            "su nueva búsqueda en el tema General del grupo.\n"
-            "Si pregunta sobre los resultados, da opinión experta.\n"
-            "Máximo 500 caracteres. No uses markdown."
+            "Responde de forma concisa, experta y práctica (máximo 600 caracteres). "
+            "No uses asteriscos ni markdown, solo texto claro con emojis."
         )
 
         resp = self._call_model(prompt)
-        return resp.strip()[:600] if resp else "No he podido procesar tu pregunta. Inténtalo de nuevo."
+        if resp:
+            return resp.replace("**", "").replace("__", "").strip()[:800]
+        return "No he podido procesar tu consulta en este momento."
 
     def _basic_analysis(self, results: list[dict[str, Any]]) -> str:
         """Análisis básico sin IA — compara precios."""
@@ -233,14 +214,14 @@ class HunterAIAdvisor:
             return ""
         prices = [r["price"] for r in results if r.get("price", 0) > 0]
         if not prices:
-            return "📊 No hay precios disponibles para comparar."
+            return "📊 Consulta las fichas de los enlaces para ver los precios actualizados de cada unidad."
         avg = sum(prices) / len(prices)
         cheapest = min(prices)
         return (
-            f"📊 Resumen rápido: {len(results)} opciones encontradas.\n"
-            f"💰 Precio medio: {avg:,.0f} €\n"
-            f"🔥 Más barato: {cheapest:,.0f} €\n"
-            f"💡 Los anuncios con precio muy por debajo de la media merecen atención especial."
+            f"📊 Resumen de mercado: {len(results)} unidades detectadas.\n"
+            f"💰 Precio medio aproximado: {avg:,.0f} €\n"
+            f"🔥 Opción más accesible: {cheapest:,.0f} €\n"
+            f"💡 Revisa detalladamente el estado de los componentes antes de formalizar la compra."
         ).replace(",", ".")
 
     @staticmethod
@@ -263,7 +244,7 @@ class HunterAIAdvisor:
         return "Producto"
 
     def _fallback_consult(self, user_prompt: str) -> dict[str, Any]:
-        """Fallback inteligente si la IA no responde."""
+        """Fallback inteligente en español si la IA no responde."""
         lower = user_prompt.lower()
         cat = ItemCategory.OTHER
         prop_types = None
@@ -303,46 +284,16 @@ class HunterAIAdvisor:
                 except ValueError:
                     pass
 
-        location = None
-        locations_es = [
-            "málaga", "malaga", "madrid", "barcelona", "valencia", "sevilla", "granada",
-            "alicante", "murcia", "cádiz", "cadiz", "córdoba", "cordoba", "toledo",
-            "almería", "almeria", "huelva", "jaén", "jaen", "asturias", "cantabria",
-            "vizcaya", "guipúzcoa", "navarra", "la rioja", "zaragoza", "huesca", "teruel",
-            "lérida", "lleida", "girona", "gerona", "tarragona", "castellón", "castellon",
-            "baleares", "mallorca", "ibiza", "menorca", "tenerife", "gran canaria",
-            "marbella", "estepona", "fuengirola", "benalmádena", "benalmadena",
-            "costa del sol", "axarquía", "axarquia", "guadalhorce",
-        ]
-        for loc in locations_es:
-            if loc in lower:
-                location = loc.title()
-                break
-
         return {
             "criteria": SearchCriteria(
                 query=query,
                 category=cat,
                 property_types=prop_types,
                 price_max=price_max,
-                location=location,
                 operation=Operation.SALE,
             ),
             "project_name": self._default_project(cat),
             "topic_title": f"🎯 {user_prompt[:30]}",
             "tags": ["#Búsqueda"],
-            "advice": "Rastreando portales en tiempo real...",
+            "advice": "Rastreando portales náuticos e inmobiliarios en tiempo real...",
         }
-
-    async def generate_weekly_report(self, top_opportunities: list[dict[str, Any]]) -> str:
-        """Genera un análisis ejecutivo semanal."""
-        if not top_opportunities:
-            return "No hay oportunidades registradas esta semana."
-
-        prompt = (
-            "Eres un asesor experto. Redacta un resumen ejecutivo breve (máx 500 chars) "
-            "de estas oportunidades. Destaca los 2-3 mejores chollos y da un consejo.\n\n"
-            f"Datos:\n{json.dumps(top_opportunities[:5], ensure_ascii=False, default=str)}"
-        )
-        resp = self._call_model(prompt)
-        return resp if resp else "No se pudo generar el análisis con IA."
