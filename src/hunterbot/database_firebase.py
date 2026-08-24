@@ -40,6 +40,28 @@ class FirestoreDatabase:
         except Exception as e:
             logger.error("No se pudo inicializar Firebase Firestore: %s", e)
 
+    def is_message_already_processed(self, update_id: int | str, message_id: int | str) -> bool:
+        """Comprueba si un update_id o message_id de Telegram ya fue procesado para evitar duplicados."""
+        if not self.enabled:
+            return False
+
+        key = f"{update_id}_{message_id}"
+        doc_ref = self.db.collection("processed_messages").document(str(key))
+        try:
+            doc = doc_ref.get()
+            if doc.exists:
+                return True
+            # Registrarlo con TTL implícito
+            doc_ref.set({
+                "update_id": str(update_id),
+                "message_id": str(message_id),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            return False
+        except Exception as e:
+            logger.warning("Error verificando deduplicación en Firestore: %s", e)
+            return False
+
     def save_opportunity(self, opp: OpportunityScore) -> bool:
         """Guarda o actualiza una oportunidad en Firestore."""
         if not self.enabled:
