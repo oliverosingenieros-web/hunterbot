@@ -11,12 +11,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from selectolax.parser import HTMLParser
 
 from hunterbot.ai_advisor import HunterAIAdvisor
 from hunterbot.config import load_config
 from hunterbot.database_firebase import FirestoreDatabase
 from hunterbot.engine import HunterEngine
 from hunterbot.models import ItemCategory, SearchCriteria
+from hunterbot.providers.web_search import extract_price
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -473,10 +475,13 @@ class InteractiveTelegramBot:
                     len_str = f" | Eslora est.: ~{it['length_m']}m" if it.get("length_m") else ""
                     lines.append(f"{i}. {it['title']}{len_str}\n   💰 {p_str}\n   🔗 {it['url']}")
 
+                print("DEBUG: Items extraídos:", len(remolcables))
                 await self.send_message(chat_id, "\n\n".join(lines), thread_id)
 
                 # Dictamen del perito naval
+                print("DEBUG: Llamando a la IA...")
                 analysis = await self.ai.analyze_results(user_prompt, remolcables[:6])
+                print("DEBUG: IA respondió.")
                 if analysis:
                     report_ai = (
                         f"🧠 PERITAJE NAVAL (Barcos Remolcables):\n\n{analysis}\n\n"
