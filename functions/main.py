@@ -42,10 +42,11 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
             return https_fn.Response("OK", status=200)
 
         message = data["message"]
+        update_id = data.get("update_id")
 
         async def _handle():
             bot = InteractiveTelegramBot("config.yaml")
-            await bot.process_message(message)
+            await bot.process_message(message, update_id)
 
         asyncio.run(_handle())
         return https_fn.Response("OK", status=200)
@@ -85,7 +86,6 @@ def scheduled_hunter(event: scheduler_fn.ScheduledEvent) -> None:
                 interval_days = alert.get("interval_days", 7)
                 last_exec_str = alert.get("last_executed")
 
-                # Comprobar si ha cumplido el plazo configurado por el usuario
                 should_run = True
                 if last_exec_str:
                     try:
@@ -124,7 +124,6 @@ def scheduled_hunter(event: scheduler_fn.ScheduledEvent) -> None:
                         )
                         await bot.send_message(chat_id, report_msg, thread_id)
 
-                    # Actualizar fecha de última ejecución
                     doc.reference.update({"last_executed": now.isoformat()})
 
             await engine.close()
