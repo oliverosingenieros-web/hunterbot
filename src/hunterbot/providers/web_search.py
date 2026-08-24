@@ -260,24 +260,34 @@ class WebSearchProvider(BaseProvider):
             items: list[Item] = []
             seen_urls: set[str] = set()
 
-            for site in target_sites:
-                query = f"site:{site} {base_q}"
+            # Rotación de User-Agents reales
+            user_agents = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+            ]
+
+            for idx, site in enumerate(target_sites):
+                q_term = base_q
+                if criteria.category == ItemCategory.BOAT and "venta" not in base_q.lower() and "precio" not in base_q.lower():
+                    q_term = f"{base_q} venta precio"
+                query = f"site:{site} {q_term}"
                 encoded = urllib.parse.quote_plus(query)
-                url = f"https://www.bing.com/search?q={encoded}"
+                ua = user_agents[idx % len(user_agents)]
+
+                # Intento 1: Bing Search
+                bing_url = f"https://www.bing.com/search?q={encoded}"
+                cards_found = False
 
                 try:
                     req = urllib.request.Request(
-                        url,
+                        bing_url,
                         headers={
-                            "User-Agent": (
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                "Chrome/124.0.0.0 Safari/537.36"
-                            ),
-                            "Accept-Language": "es-ES,es;q=0.9",
+                            "User-Agent": ua,
+                            "Accept-Language": "es-ES,es;q=0.9,it;q=0.8",
                         },
                     )
-                    with urllib.request.urlopen(req, timeout=8) as resp:
+                    with urllib.request.urlopen(req, timeout=7) as resp:
                         html = resp.read().decode("utf-8", errors="replace")
                         parser = HTMLParser(html)
                         cards = parser.css(".b_algo")
@@ -305,7 +315,7 @@ class WebSearchProvider(BaseProvider):
                             meta = extract_metadata(combined_text, criteria.category)
 
                             clean_title = re.sub(
-                                r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon).*",
+                                r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon|Subito).*",
                                 "",
                                 raw_title,
                                 flags=re.IGNORECASE,
@@ -339,8 +349,84 @@ class WebSearchProvider(BaseProvider):
                                     location=criteria.location or "España",
                                 )
                             )
+                            cards_found = True
                 except Exception as e:
-                    logger.debug("Error consultando site:%s: %s", site, e)
+                    logger.debug("Bing fallo para site:%s: %s", site, e)
+
+                # Fallback Automático: DuckDuckGo HTML si Bing no devolvió fichas
+                if not cards_found:
+                    try:
+                        ddg_url = f"https://html.duckduckgo.com/html/?q={encoded}"
+                        req_ddg = urllib.request.Request(
+                            ddg_url,
+                            headers={
+                                "User-Agent": ua,
+                                "Accept-Language": "es-ES,es;q=0.9",
+                            },
+                        )
+                        with urllib.request.urlopen(req_ddg, timeout=7) as resp_ddg:
+                            html_ddg = resp_ddg.read().decode("utf-8", errors="replace")
+                            parser_ddg = HTMLParser(html_ddg)
+                            results = parser_ddg.css(".result")
+
+                            for res in results:
+                                link_el = res.css_first(".result__title a")
+                                if not link_el:
+                                    continue
+                                raw_title = link_el.text(strip=True)
+                                raw_url = link_el.attributes.get("href", "")
+                                clean_url = unwrap_redirect_url(raw_url)
+
+                                if clean_url in seen_urls:
+                                    continue
+                                seen_urls.add(clean_url)
+
+                                sn_el = res.css_first(".result__snippet")
+                                snippet = sn_el.text(strip=True) if sn_el else ""
+
+                                combined_text = f"{raw_title} {snippet}"
+                                portal_name = site.split(".")[0]
+
+                                price = extract_price(combined_text)
+                                meta = extract_metadata(combined_text, criteria.category)
+
+                                clean_title = re.sub(
+                                    r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon|Subito).*",
+                                    "",
+                                    raw_title,
+                                    flags=re.IGNORECASE,
+                                ).strip()
+
+                                if len(clean_title) < 4:
+                                    continue
+
+                                items.append(
+                                    Item(
+                                        id=self._make_id(clean_url or clean_title),
+                                        provider=portal_name,
+                                        category=criteria.category,
+                                        title=clean_title,
+                                        price=price,
+                                        url=clean_url,
+                                        description=snippet[:600],
+                                        length_m=meta.get("length_m"),
+                                        beam_m=meta.get("beam_m"),
+                                        year_built=meta.get("year_built"),
+                                        engine_power_hp=meta.get("engine_power_hp"),
+                                        engine_type=meta.get("engine_type"),
+                                        engine_hours=meta.get("engine_hours"),
+                                        hull_material=meta.get("hull_material"),
+                                        has_trailer=meta.get("has_trailer"),
+                                        size_m2=meta.get("size_m2"),
+                                        rooms=meta.get("rooms"),
+                                        land_type=meta.get("land_type"),
+                                        utilities=meta.get("utilities"),
+                                        highlights=meta.get("highlights", []),
+                                        location=criteria.location or "España",
+                                    )
+                                )
+                    except Exception as e_ddg:
+                        logger.debug("DDG fallback fallo para site:%s: %s", site, e_ddg)
 
             return items
 
