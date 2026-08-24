@@ -307,6 +307,14 @@ class InteractiveTelegramBot:
             await self.send_message(chat_id, "🛑 Búsqueda recurrente desactivada para este tema.", thread_id)
             return
 
+        # Intercepción PRIORITARIA si el mensaje contiene una URL para examinarla directamente
+        url_match = re.search(r"https?://[^\s]+", text)
+        if url_match:
+            clean_url = url_match.group(0).rstrip(")]>\"'")
+            handled = await self._handle_direct_url_analysis(chat_id, clean_url, text, thread_id)
+            if handled:
+                return
+
         if not is_general and topic_key in _topic_context:
             context_data = _topic_context[topic_key]
             is_recurrence = await self._detect_and_set_recurring_alert(chat_id, thread_id, text, context_data)
