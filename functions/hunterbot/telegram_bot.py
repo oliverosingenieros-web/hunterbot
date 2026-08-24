@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 # Memoria de contexto por hilo (topic) para conversación
 _topic_context: dict[str, dict[str, Any]] = {}
+# Bloqueo en memoria para evitar llamadas simultáneas al mismo update_id / message_id
+_processed_in_memory: set[str] = set()
 
 
 def _get_portal_direct_links(category: ItemCategory, query: str | None, location: str | None) -> str:
@@ -199,7 +201,6 @@ class InteractiveTelegramBot:
         elif "diario" in lower or "cada día" in lower or "cada dia" in lower:
             interval_days = 1
         elif "seguir buscando" in lower or "sigue buscando" in lower or "busca recurrentemente" in lower or "avísame" in lower:
-            # Si no especifica días, por defecto semanal (7 días)
             interval_days = 7
 
         if interval_days > 0:
@@ -223,13 +224,25 @@ class InteractiveTelegramBot:
             return True
         return False
 
-    async def process_message(self, message: dict) -> None:
-        """Procesa un mensaje entrante de Telegram."""
+    async def process_message(self, message: dict, update_id: int | None = None) -> None:
+        """Procesa un mensaje entrante de Telegram con deduplicación estricta."""
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "").strip()
         thread_id = message.get("message_thread_id")
+        message_id = message.get("message_id")
 
         if not text or not chat_id:
+            return
+
+        # Deduplicación: Si Telegram reenvió el webhook por timeout, descartar
+        dedup_key = f"{chat_id}_{message_id}"
+        if dedup_key in _processed_in_memory:
+            logger.info("⏭️ Mensaje duplicado en memoria omitido: %s", dedup_key)
+            return
+        _processed_in_memory.add(dedup_key)
+
+        if self.db.is_message_already_processed(update_id or 0, message_id or 0):
+            logger.info("⏭️ Mensaje ya procesado en Firestore omitido: %s_%s", update_id, message_id)
             return
 
         logger.info("📩 Mensaje recibido (chat=%s, thread=%s): '%s'", chat_id, thread_id, text[:80])
@@ -277,7 +290,6 @@ class InteractiveTelegramBot:
             return
 
         if not is_general and topic_key in _topic_context:
-            # Comprobar si pide programar recurrencia
             context_data = _topic_context[topic_key]
             is_recurrence = await self._detect_and_set_recurring_alert(chat_id, thread_id, text, context_data)
             if is_recurrence:
@@ -309,10 +321,9 @@ class InteractiveTelegramBot:
         topic_key = f"{chat_id}:{thread_id}"
         context_data = _topic_context.get(topic_key, {})
         query = context_data.get("query", "tu búsqueda en este tema")
-        
+
         await self.send_message(chat_id, f"📊 Generando reporte actualizado para '{query}'...", thread_id)
-        
-        # Ejecutar rastreo de actualización
+
         crit_dict = context_data.get("criteria", {})
         criteria = SearchCriteria(
             category=ItemCategory(crit_dict.get("category", "boat")),
@@ -320,13 +331,13 @@ class InteractiveTelegramBot:
             location=crit_dict.get("location"),
             price_max=crit_dict.get("price_max"),
         )
-        
+
         engine = HunterEngine(self.cfg)
         try:
             results = await engine.search_all(criteria)
             results_text, items_for_ai = self._format_results(results[:6])
             analysis = await self.ai.analyze_results(query, items_for_ai)
-            
+
             report_msg = (
                 f"📋 REPORTE DE ACTUALIZACIÓN DEL TEMA:\n\n"
                 f"{results_text}\n\n"
@@ -453,7 +464,7 @@ class InteractiveTelegramBot:
                         for u in updates:
                             self.last_update_id = u.get("update_id", self.last_update_id)
                             if "message" in u:
-                                asyncio.create_task(self.process_message(u["message"]))
+                                asyncio.create_task(self.process_message(u["message"], u.get("update_id")))
                 except Exception as e:
                     logger.error("Error en loop de Telegram: %s", e)
                     await asyncio.sleep(5)
