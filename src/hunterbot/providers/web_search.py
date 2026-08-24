@@ -121,8 +121,9 @@ def extract_price(text: str) -> float:
 
 
 def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
-    """Extrae eslora, año de construcción, metros cuadrados o especificaciones clave."""
-    meta: dict[str, Any] = {}
+    """Extrae eslora, motor, horas, remolque, calificación de suelo, metros cuadrados y extras."""
+    meta: dict[str, Any] = {"highlights": []}
+    text_lower = text.lower()
 
     if category == ItemCategory.BOAT:
         # Eslora en metros (ej. "5.30 m", "5,70m", "10 metros")
@@ -135,10 +136,48 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
             except ValueError:
                 pass
 
+        # Manga (ej. "manga 2.45", "2,50 m manga")
+        m_beam = re.search(r"(?:manga\s*:?\s*)(\d{1,2}[\.,]\d{1,2})|(\d{1,2}[\.,]\d{1,2})\s*m?\s*manga", text, re.IGNORECASE)
+        if m_beam:
+            try:
+                b_str = m_beam.group(1) or m_beam.group(2)
+                meta["beam_m"] = float(b_str.replace(",", "."))
+            except ValueError:
+                pass
+
         # Año de construcción (ej. "año 2018", "del 2021", "2015")
         m_year = re.search(r"(?:año|del|de)?\s*(20[0-2]\d|199\d)", text, re.IGNORECASE)
         if m_year:
             meta["year_built"] = int(m_year.group(1))
+
+        # Potencia motor (ej. "115 cv", "150 hp", "motor 200cv")
+        m_hp = re.search(r"(\d{2,4})\s*(?:cv|hp|caballos)", text, re.IGNORECASE)
+        if m_hp:
+            meta["engine_power_hp"] = float(m_hp.group(1))
+
+        # Horas de motor (ej. "180 horas", "250 h de motor")
+        m_hours = re.search(r"(\d{1,5})\s*(?:horas|h\b|hrs)", text, re.IGNORECASE)
+        if m_hours:
+            meta["engine_hours"] = int(m_hours.group(1))
+            meta["highlights"].append(f"Motor con {m_hours.group(1)} horas")
+
+        # Tipo de motor (Suzuki, Yamaha, Mercury, Honda, Evinrude, Volvo Penta, 4 tiempos)
+        for brand in ["suzuki", "yamaha", "mercury", "honda", "evinrude", "volvo penta", "yanmar", "tohatsu"]:
+            if brand in text_lower:
+                meta["engine_type"] = brand.title()
+                break
+        if "4 tiempos" in text_lower or "4t" in text_lower:
+            meta["highlights"].append("Motor 4 Tiempos")
+
+        # ¿Incluye remolque?
+        if "remolque incluido" in text_lower or "con remolque" in text_lower or "incluye remolque" in text_lower:
+            meta["has_trailer"] = True
+            meta["highlights"].append("Remolque incluido en precio")
+
+        # Material flotadores / casco
+        if "hypalon" in text_lower or "neopreno" in text_lower:
+            meta["hull_material"] = "Hypalon-Neopreno"
+            meta["highlights"].append("Flotadores Hypalon-Neopreno")
 
     elif category == ItemCategory.REAL_ESTATE:
         # Metros cuadrados (ej. "1.500 m2", "85 m²")
@@ -154,6 +193,35 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
         m_hab = re.search(r"(\d{1,2})\s*(?:hab|habitaciones|dormitorios)", text, re.IGNORECASE)
         if m_hab:
             meta["rooms"] = int(m_hab.group(1))
+
+        # Calificación del suelo (Urbano, Urbanizable, Rústico)
+        if "urbano" in text_lower or "solar urbano" in text_lower or "edificable" in text_lower:
+            meta["land_type"] = "Urbano / Edificable"
+            meta["highlights"].append("Suelo Urbano Edificable")
+        elif "rústico" in text_lower or "rustico" in text_lower or "agrario" in text_lower:
+            meta["land_type"] = "Rústico / Agrario"
+            meta["highlights"].append("Suelo Rústico")
+
+        # Suministros (Agua, Luz, Pozo, Acceso asfaltado)
+        servs = []
+        if "agua" in text_lower:
+            servs.append("Agua")
+        if "luz" in text_lower or "electricidad" in text_lower:
+            servs.append("Luz")
+        if "pozo" in text_lower:
+            servs.append("Pozo propio")
+        if "asfaltado" in text_lower or "acceso rodado" in text_lower:
+            servs.append("Acceso rodado")
+        if servs:
+            meta["utilities"] = ", ".join(servs)
+            meta["highlights"].append(f"Suministros: {', '.join(servs)}")
+
+    else:
+        # Productos
+        if "nuevo" in text_lower or "precintado" in text_lower or "a estrenar" in text_lower:
+            meta["highlights"].append("Nuevo / Precintado")
+        if "factura" in text_lower or "garantía" in text_lower or "garantia" in text_lower:
+            meta["highlights"].append("Con factura / Garantía oficial")
 
     return meta
 
@@ -254,11 +322,20 @@ class WebSearchProvider(BaseProvider):
                                     title=clean_title,
                                     price=price,
                                     url=clean_url,
-                                    description=snippet[:300],
+                                    description=snippet[:600],
                                     length_m=meta.get("length_m"),
+                                    beam_m=meta.get("beam_m"),
                                     year_built=meta.get("year_built"),
+                                    engine_power_hp=meta.get("engine_power_hp"),
+                                    engine_type=meta.get("engine_type"),
+                                    engine_hours=meta.get("engine_hours"),
+                                    hull_material=meta.get("hull_material"),
+                                    has_trailer=meta.get("has_trailer"),
                                     size_m2=meta.get("size_m2"),
                                     rooms=meta.get("rooms"),
+                                    land_type=meta.get("land_type"),
+                                    utilities=meta.get("utilities"),
+                                    highlights=meta.get("highlights", []),
                                     location=criteria.location or "España",
                                 )
                             )
