@@ -173,11 +173,18 @@ class HunterAIAdvisor:
             return self._fallback_consult(user_prompt)
 
         cat = self._map_category(data.get("category", "other"))
+        clean_q = data.get("query")
+        if clean_q:
+            # Eliminar URLs o frases conversacionales largas del query para los buscadores
+            clean_q = re.sub(r"https?://\S+", "", clean_q)
+            clean_q = re.sub(r"^(?:búscame|buscame|encuéntrame|encuentrame|quiero|necesito|según tu opinión|segun tu opinion|en esta página|en esta pagina)\s*", "", clean_q, flags=re.IGNORECASE).strip()
+        if not clean_q or len(clean_q) < 3:
+            clean_q = "barcos remolcables" if cat == ItemCategory.BOAT else "oportunidades"
 
         criteria = SearchCriteria(
             category=cat,
             location=data.get("location"),
-            query=data.get("query"),
+            query=clean_q,
             price_max=data.get("price_max"),
             price_min=data.get("price_min"),
             property_types=data.get("property_types"),
