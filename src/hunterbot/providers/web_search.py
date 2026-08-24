@@ -303,6 +303,12 @@ class WebSearchProvider(BaseProvider):
 
                             if clean_url in seen_urls:
                                 continue
+
+                            # Validación estricta: el enlace debe pertenecer realmente al portal objetivo
+                            base_site_domain = site.split("/")[0].lower()
+                            if base_site_domain not in clean_url.lower():
+                                continue
+
                             seen_urls.add(clean_url)
 
                             desc_el = card.css_first(".b_caption p") or card.css_first("p")
@@ -379,6 +385,11 @@ class WebSearchProvider(BaseProvider):
 
                                 if clean_url in seen_urls:
                                     continue
+
+                                base_site_domain = site.split("/")[0].lower()
+                                if base_site_domain not in clean_url.lower():
+                                    continue
+
                                 seen_urls.add(clean_url)
 
                                 sn_el = res.css_first(".result__snippet")
