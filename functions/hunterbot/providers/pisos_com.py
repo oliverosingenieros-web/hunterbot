@@ -28,10 +28,26 @@ class PisosComProvider(BaseProvider):
     base_url = "https://www.pisos.com"
 
     async def search(self, criteria: SearchCriteria) -> list[Item]:
-        """Busca inmuebles en Pisos.com."""
+        """Busca inmuebles en Pisos.com respetando el tipo de propiedad (terrenos, pisos, casas)."""
         op = "venta" if criteria.operation == Operation.SALE else "alquiler"
         loc = (criteria.location or "espana").lower().strip().replace(" ", "_")
-        url = f"{self.base_url}/{op}/pisos-{quote(loc)}/"
+
+        # Eliminar provincia si viene en formato "Foz, Lugo" -> "foz"
+        if "," in loc:
+            loc = loc.split(",")[0].strip()
+
+        # Tipo de inmueble
+        tipo = "pisos"
+        if criteria.property_types and "lands" in criteria.property_types:
+            tipo = "terrenos"
+        elif criteria.property_types and "premises" in criteria.property_types:
+            tipo = "locales"
+        elif criteria.property_types and "homes" in criteria.property_types:
+            tipo = "casas"
+        elif criteria.query and any(w in criteria.query.lower() for w in ["terreno", "parcela", "finca", "solar"]):
+            tipo = "terrenos"
+
+        url = f"{self.base_url}/{op}/{tipo}-{quote(loc)}/"
 
         params: dict[str, str] = {}
         if criteria.price_min:
@@ -43,7 +59,7 @@ class PisosComProvider(BaseProvider):
         try:
             resp = await self.http.get(url, params=params, rate_limit=self.default_rate_limit)
             if resp.status_code != 200:
-                logger.warning("Pisos.com returned status %d", resp.status_code)
+                logger.warning("Pisos.com returned status %d for URL: %s", resp.status_code, url)
                 return []
 
             parser = HTMLParser(resp.text)
