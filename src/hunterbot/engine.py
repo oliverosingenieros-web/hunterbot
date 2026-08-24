@@ -111,14 +111,8 @@ class HunterEngine:
                 except Exception as e:
                     logger.error("Error guardando zone stats: %s", e)
 
-        # 3. Calcular Scoring
-        scored: list[OpportunityScore] = []
-        for item in all_items:
-            opp = self.scoring.score_item(item, zone_stats=zone_stats)
-            scored.append(opp)
-
-        # Ordenar por score descendente
-        scored.sort(key=lambda x: x.score, reverse=True)
+        # 3. Calcular Scoring con distribución estadística real de mercado
+        scored = self.scoring.score_all_items(all_items, zone_stats=zone_stats)
 
         # 4. Sincronizar en tiempo real con Cloud Firestore para alimentar Netlify
         try:
