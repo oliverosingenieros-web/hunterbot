@@ -52,8 +52,8 @@ class HunterAIAdvisor:
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": 0.3,
-                    "maxOutputTokens": 1500,
+                    "temperature": 0.4,
+                    "maxOutputTokens": 2500,
                 },
             }
             req = urllib.request.Request(
@@ -69,18 +69,30 @@ class HunterAIAdvisor:
                         parts = candidates[0].get("content", {}).get("parts", [])
                         text = parts[0].get("text", "") if parts else ""
                         if text:
-                            # Filtrar notas de razonamiento interno del modelo (ej. * Role: ..., * Constraints: ...)
-                            lines = text.strip().split("\n")
-                            cleaned_lines = []
+                            # Extraer el contenido redactado real descartando notas internas de razonamiento en inglés
+                            lines = text.split("\n")
+                            clean_lines = []
+                            meta_pattern = re.compile(
+                                r"^\s*[*•-]?\s*(?:Subject|Role|Mission|Value|Purpose|Format|Structure|Language|Constraint|Rules|Input|Drafting|Paragraph \d|Step \d|Direct response|Task|Context|Checklist|Item \d):",
+                                re.IGNORECASE,
+                            )
                             for line in lines:
-                                l_str = line.strip()
-                                if re.match(r"^\*\s*(?:Role|Mission|Input|User Request|Data Provided|Constraints|Item \d|Language|Task|Intent|Direct response):", l_str, re.IGNORECASE):
+                                stripped = line.strip()
+                                if not stripped:
                                     continue
-                                cleaned_lines.append(line)
-                            cleaned_text = "\n".join(cleaned_lines).strip()
+                                if meta_pattern.match(stripped):
+                                    continue
+                                if stripped.startswith("*   *") and ":" in stripped:
+                                    continue
+                                clean_l = line.lstrip(" \t*•-")
+                                if len(clean_l) > 15:
+                                    clean_lines.append(clean_l)
+
+                            cleaned_text = "\n\n".join(clean_lines).strip()
                             if cleaned_text:
                                 logger.info("IA respondió con modelo %s (%d chars)", model_name, len(cleaned_text))
                                 return cleaned_text
+                            return text.strip()
             except Exception as e:
                 logger.warning("Error llamando modelo %s: %s", model_name, e)
         return ""
