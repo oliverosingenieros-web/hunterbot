@@ -1,8 +1,8 @@
-"""Provider de búsqueda web genérica usando DuckDuckGo.
+"""Provider de búsqueda web especializada y scraping libre para portales náuticos e inmobiliarios.
 
-SOLO se usa como último recurso cuando los providers especializados
-(Fotocasa, Pisos.com, Wallapop, etc.) no devuelven resultados.
-Los resultados se filtran para excluir páginas no relevantes.
+Usa el endpoint directo de HTML con dorks específicos hacia los principales
+portales náuticos (Cosasdebarcos, Topbarcos, Boat24, Milanuncios, Todobarco, Inautia)
+y portales inmobiliarios para esquivar los bloqueos de Cloudflare y obtener anuncios reales.
 """
 
 from __future__ import annotations
@@ -10,7 +10,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import urllib.parse
+import urllib.request
+from urllib.parse import parse_qs, urlparse
 from typing import Any
+
+from selectolax.parser import HTMLParser
 
 from hunterbot.models import Item, ItemCategory, SearchCriteria
 from hunterbot.providers.base import BaseProvider
@@ -18,138 +23,159 @@ from hunterbot.providers import register
 
 logger = logging.getLogger(__name__)
 
-# Dominios irrelevantes que nunca son ofertas reales
-_BLOCKED_DOMAINS = {
-    "wikipedia.org", "wikimedia.org", "wiktionary.org",
-    "youtube.com", "youtu.be",
-    "facebook.com", "instagram.com", "twitter.com", "x.com",
-    "tiktok.com", "pinterest.com", "linkedin.com",
-    "reddit.com",
-    "google.com", "google.es",
-    "elpais.com", "elmundo.es", "abc.es", "lavanguardia.com",
-    "rtve.es", "antena3.com", "telecinco.es",
-    "tripadvisor.com", "booking.com",
-}
+# Dominios de barcos prioritarios
+BOAT_PORTALS = [
+    "cosasdebarcos.com",
+    "topbarcos.com",
+    "boat24.com",
+    "milanuncios.com",
+    "todobarco.com",
+    "inautia.com",
+    "youboat.com",
+    "yachtworld.com",
+]
 
-# Dominios que SÍ son portales de anuncios reales
-_GOOD_DOMAINS = {
-    "idealista.com", "fotocasa.es", "pisos.com", "habitaclia.com",
-    "yaencontre.com", "tucasa.com", "enalquiler.com", "vibbo.com",
-    "milanuncios.com", "wallapop.com", "amazon.es", "amazon.com",
-    "topbarcos.com", "cosasdebarcos.com", "boat24.com", "yachtworld.com",
-    "nautalia.com", "engel-voelkers.com", "inmobiliaria.com",
-    "segundamano.es", "ebay.es", "pccomponentes.com",
-}
-
-
-def _is_relevant_url(url: str) -> bool:
-    """Filtra URLs irrelevantes (Wikipedia, noticias, redes sociales)."""
-    url_lower = url.lower()
-    for blocked in _BLOCKED_DOMAINS:
-        if blocked in url_lower:
-            return False
-    return True
-
-
-def _is_good_domain(url: str) -> bool:
-    """Detecta si la URL es de un portal de anuncios conocido."""
-    url_lower = url.lower()
-    for good in _GOOD_DOMAINS:
-        if good in url_lower:
-            return True
-    return False
+# Dominios inmobiliarios prioritarios
+REAL_ESTATE_PORTALS = [
+    "idealista.com",
+    "fotocasa.es",
+    "pisos.com",
+    "habitaclia.com",
+    "yaencontre.com",
+    "milanuncios.com",
+]
 
 
 @register
 class WebSearchProvider(BaseProvider):
-    """Provider para búsquedas web vía DuckDuckGo.
-    
-    Actúa como rastreador complementario: busca en la web y filtra
-    solo resultados de portales de anuncios reales.
-    """
+    """Provider especializado que indexa ofertas reales desde portales líderes."""
 
     name = "web_search"
-    display_name = "Web Search (DuckDuckGo)"
+    display_name = "Rastreador Náutico & Inmobiliario"
     category = ItemCategory.OTHER
     requires_api_key = False
-    default_rate_limit = 2.0
+    default_rate_limit = 1.0
 
     async def search(self, criteria: SearchCriteria) -> list[Item]:
-        """Realiza una búsqueda web y extrae posibles ofertas de portales reales."""
-        # Construir query orientada a portales de anuncios
-        parts = []
+        """Realiza una búsqueda dirigida con dorks hacia portales relevantes."""
+        query_terms = []
         if criteria.query:
-            parts.append(criteria.query)
+            query_terms.append(criteria.query)
         if criteria.location:
-            parts.append(criteria.location)
+            query_terms.append(criteria.location)
 
-        # Añadir contexto según categoría
-        if criteria.category == ItemCategory.REAL_ESTATE:
-            parts.append("comprar venta")
-        elif criteria.category == ItemCategory.BOAT:
-            parts.append("comprar ocasión")
-
-        if criteria.price_max:
-            parts.append(f"menos de {int(criteria.price_max)}€")
-
-        query = " ".join(parts)
-        if not query.strip():
+        base_q = " ".join(query_terms).strip()
+        if not base_q:
             return []
 
-        items: list[Item] = []
-        try:
-            loop = asyncio.get_running_loop()
+        # Construir consulta con portales prioritarios
+        if criteria.category == ItemCategory.BOAT:
+            site_filter = " OR ".join([f"site:{p}" for p in BOAT_PORTALS[:5]])
+            full_query = f"{base_q} ({site_filter})"
+        elif criteria.category == ItemCategory.REAL_ESTATE:
+            site_filter = " OR ".join([f"site:{p}" for p in REAL_ESTATE_PORTALS[:4]])
+            full_query = f"{base_q} ({site_filter})"
+        else:
+            full_query = f"{base_q} (site:milanuncios.com OR site:wallapop.com OR site:amazon.es)"
 
-            def _do_search() -> list[dict[str, Any]]:
-                try:
-                    from duckduckgo_search import DDGS
-                    with DDGS() as ddgs:
-                        return list(ddgs.text(query, max_results=20, region="es-es"))
-                except Exception as e:
-                    logger.warning("DuckDuckGo search error: %s", e)
-                    return []
+        loop = asyncio.get_running_loop()
 
-            results = await loop.run_in_executor(None, _do_search)
+        def _fetch_listings() -> list[Item]:
+            items: list[Item] = []
+            try:
+                encoded = urllib.parse.quote_plus(full_query)
+                url = f"https://html.duckduckgo.com/html/?q={encoded}"
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        ),
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "es-ES,es;q=0.9",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
+                    parser = HTMLParser(html)
+                    results = parser.css(".result")
 
-            for idx, r in enumerate(results):
-                title = r.get("title", "")
-                snippet = r.get("body", "")
-                href = r.get("href", "")
+                    for r in results:
+                        title_el = r.css_first(".result__title a")
+                        snippet_el = r.css_first(".result__snippet")
+                        if not title_el:
+                            continue
 
-                # FILTRO 1: Excluir URLs irrelevantes
-                if not href or not _is_relevant_url(href):
-                    continue
+                        raw_href = title_el.attributes.get("href", "")
+                        real_url = raw_href
+                        if "uddg=" in raw_href:
+                            parsed_u = urlparse(raw_href)
+                            qs = parse_qs(parsed_u.query)
+                            if "uddg" in qs:
+                                real_url = qs["uddg"][0]
 
-                # FILTRO 2: Priorizar portales de anuncios reales
-                is_good = _is_good_domain(href)
+                        # Evitar páginas de anuncios genéricos / publicidad de DDG
+                        if "duckduckgo.com/y.js" in real_url or "bing.com" in real_url:
+                            continue
 
-                # Intentar parsear precio
-                price = 0.0
-                combined = f"{title} {snippet}"
-                # Buscar formatos como "85.000 €", "120000€", "45.500 EUR"
-                m = re.search(r"(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*(?:€|EUR|euros)", combined, re.IGNORECASE)
-                if m:
-                    try:
-                        price = float(m.group(1).replace(".", "").replace(",", "."))
-                    except ValueError:
+                        title = title_el.text(strip=True)
+                        snippet = snippet_el.text(strip=True) if snippet_el else ""
+
+                        # Detectar portal de procedencia
+                        provider_name = "portal_nautico"
+                        domain_match = urlparse(real_url).netloc.lower()
+                        for p in BOAT_PORTALS + REAL_ESTATE_PORTALS:
+                            if p in domain_match:
+                                provider_name = p.replace(".com", "").replace(".es", "")
+                                break
+
+                        # Extraer precio si está presente
                         price = 0.0
+                        combined = f"{title} {snippet}"
+                        m_price = re.search(r"(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*(?:€|EUR|euros)", combined, re.IGNORECASE)
+                        if m_price:
+                            try:
+                                price = float(m_price.group(1).replace(".", "").replace(",", "."))
+                            except ValueError:
+                                pass
 
-                # Solo incluir si tiene precio O es de un portal bueno
-                if price > 0 or is_good:
-                    items.append(
-                        Item(
-                            id=self._make_id(str(hash(href))),
-                            provider=self.name,
-                            category=criteria.category or ItemCategory.OTHER,
-                            title=title[:100],
-                            price=price,
-                            url=href,
-                            description=snippet[:200] if snippet else None,
+                        # Extraer eslora / dimensiones si es barco
+                        length_m = None
+                        m_len = re.search(r"(\d+[\.,]?\d*)\s*m\b", combined)
+                        if m_len:
+                            try:
+                                length_m = float(m_len.group(1).replace(",", "."))
+                            except ValueError:
+                                pass
+
+                        # Extraer año
+                        year = None
+                        m_yr = re.search(r"\b(19\d\d|20[0-2]\d)\b", combined)
+                        if m_yr:
+                            try:
+                                year = int(m_yr.group(1))
+                            except ValueError:
+                                pass
+
+                        items.append(
+                            Item(
+                                id=self._make_id(str(hash(real_url))),
+                                provider=provider_name,
+                                category=criteria.category,
+                                title=title[:100],
+                                price=price,
+                                length_m=length_m,
+                                year_built=year,
+                                url=real_url,
+                                description=snippet[:300] if snippet else None,
+                            )
                         )
-                    )
+            except Exception as e:
+                logger.error("Error en WebSearchProvider: %s", e)
 
-        except Exception as e:
-            logger.error("Error en Web Search: %s", e)
+            return items
 
-        logger.info("Web Search: %d resultados relevantes de %d totales", len(items), len(results) if 'results' in dir() else 0)
-        return items
+        results = await loop.run_in_executor(None, _fetch_listings)
+        logger.info("WebSearchProvider: %d anuncios obtenidos para '%s'", len(results), full_query)
+        return results
