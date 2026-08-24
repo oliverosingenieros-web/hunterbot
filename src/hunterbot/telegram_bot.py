@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
+import urllib.parse
 from typing import Any
 
 import httpx
@@ -13,14 +13,44 @@ import httpx
 from hunterbot.ai_advisor import HunterAIAdvisor
 from hunterbot.config import load_config
 from hunterbot.engine import HunterEngine
+from hunterbot.models import ItemCategory
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 # Memoria de contexto por hilo (topic) para conversación
-# En Cloud Functions esto se resetea entre invocaciones, pero dentro de
-# una misma invocación permite al bot recordar qué se buscó.
 _topic_context: dict[str, str] = {}
+
+
+def _get_portal_direct_links(category: ItemCategory, query: str | None, location: str | None) -> str:
+    """Genera accesos directos con filtros precargados a los portales líderes."""
+    terms = " ".join(filter(None, [query, location])).strip()
+    encoded = urllib.parse.quote_plus(terms)
+    
+    if category == ItemCategory.BOAT:
+        return (
+            "🚢 ACCESOS DIRECTOS A PORTALES NÁUTICOS:\n"
+            f"• CosasDeBarcos: https://www.cosasdebarcos.com/barcos/buscar/?q={encoded}\n"
+            f"• TopBarcos: https://www.topbarcos.com/barcos-ocasion?palabra={encoded}\n"
+            f"• Boat24: https://www.boat24.com/es/barcos-de-ocasion/?whr={encoded}\n"
+            f"• Milanuncios Náutica: https://www.milanuncios.com/barcos-a-motor/{encoded}.htm\n"
+            f"• Todobarco: https://todobarco.com/buscar-barcos?texto={encoded}"
+        )
+    elif category == ItemCategory.REAL_ESTATE:
+        loc_clean = (location or "espana").lower().replace(" ", "-")
+        return (
+            "🏠 ACCESOS DIRECTOS A PORTALES INMOBILIARIOS:\n"
+            f"• Idealista: https://www.idealista.com/buscar/venta-viviendas/{loc_clean}/?k={encoded}\n"
+            f"• Fotocasa: https://www.fotocasa.es/es/comprar/viviendas/{loc_clean}/l?combinedLocationIds={encoded}\n"
+            f"• Pisos.com: https://www.pisos.com/venta/pisos-{loc_clean}/?kw={encoded}\n"
+            f"• Milanuncios Inmobiliaria: https://www.milanuncios.com/inmobiliaria/{encoded}.htm"
+        )
+    else:
+        return (
+            "🛍️ ACCESOS DIRECTOS:\n"
+            f"• Wallapop: https://es.wallapop.com/app/search?keywords={encoded}\n"
+            f"• Milanuncios: https://www.milanuncios.com/anuncios/{encoded}.htm"
+        )
 
 
 class InteractiveTelegramBot:
@@ -36,10 +66,9 @@ class InteractiveTelegramBot:
     async def send_message(self, chat_id: str | int, text: str, thread_id: int | None = None) -> None:
         """Envía un mensaje a Telegram. Sin Markdown para evitar errores de parseo."""
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # Enviar siempre como texto plano — más fiable que Markdown
             payload: dict = {
                 "chat_id": chat_id,
-                "text": text[:4096],  # Límite de Telegram
+                "text": text[:4096],
                 "disable_web_page_preview": True,
             }
             if thread_id:
@@ -78,35 +107,32 @@ class InteractiveTelegramBot:
 
         for i, opp in enumerate(results[:8], 1):
             item = opp.item
-            # Formatear precio
             if item.price > 0:
                 price_fmt = f"{item.price:,.0f} €".replace(",", ".")
             else:
                 price_fmt = "Consultar precio"
 
-            # Título limpio
-            title = item.title[:60] if item.title else "Sin título"
+            title = item.title[:75] if item.title else "Sin título"
 
-            # Detalles extra
             details = []
+            if item.length_m:
+                details.append(f"{item.length_m:.1f}m eslora")
+            if item.year_built:
+                details.append(f"Año {item.year_built}")
             if item.size_m2:
                 details.append(f"{int(item.size_m2)} m²")
             if item.rooms:
                 details.append(f"{item.rooms} hab")
-            if item.length_m:
-                details.append(f"{item.length_m:.1f} m eslora")
-            if item.year_built:
-                details.append(f"Año {item.year_built}")
             if item.location:
-                details.append(item.location[:25])
+                details.append(item.location[:20])
 
             detail_str = f" ({', '.join(details)})" if details else ""
-            provider_str = f" [{item.provider}]" if item.provider else ""
+            provider_str = f" [{item.provider.upper()}]" if item.provider else ""
 
             lines.append(
                 f"{i}. {title}{detail_str}\n"
-                f"   {price_fmt}{provider_str}\n"
-                f"   {item.url or 'Sin enlace'}"
+                f"   💰 {price_fmt}{provider_str}\n"
+                f"   🔗 {item.url or 'Sin enlace'}"
             )
 
             items_for_ai.append({
@@ -117,9 +143,9 @@ class InteractiveTelegramBot:
                 "url": item.url,
                 "location": item.location,
                 "size_m2": item.size_m2,
-                "rooms": item.rooms,
                 "length_m": item.length_m,
                 "year_built": item.year_built,
+                "description": item.description,
             })
 
         return "\n\n".join(lines), items_for_ai
@@ -135,43 +161,38 @@ class InteractiveTelegramBot:
 
         logger.info("📩 Mensaje recibido (chat=%s, thread=%s): '%s'", chat_id, thread_id, text[:80])
 
-        # Ignorar mensajes del propio bot
         from_user = message.get("from", {})
         if from_user.get("is_bot"):
             return
 
-        # ── Comandos ──
         if text.startswith("/start") or text.startswith("/help"):
             await self.send_message(
                 chat_id,
-                "🎯 ¡Hola! Soy HunterBot, tu asesor de inversiones con IA.\n\n"
+                "🎯 ¡Hola! Soy HunterBot, tu asesor náutico e inmobiliario con IA.\n\n"
                 "Escríbeme lo que buscas en lenguaje natural:\n"
-                '  "Quiero una parcela en Málaga por menos de 80.000€"\n'
                 '  "Busca lanchas Zar Formenti de ocasión"\n'
-                '  "Pisos en Barcelona centro por 200.000€"\n\n'
+                '  "Parcela en Málaga por menos de 80.000€"\n'
+                '  "Veleros de 12 metros en Alicante"\n\n'
                 "Yo haré:\n"
                 "1. Abriré un tema dedicado para tu búsqueda\n"
-                "2. Rastrearé portales reales (Wallapop, Pisos.com, Boat24...)\n"
-                "3. Te mostraré las mejores opciones con análisis experto\n"
-                "4. Podrás preguntarme sobre los resultados dentro del tema\n\n"
-                "¡Escribe tu primera búsqueda!",
+                "2. Te daré un asesoramiento técnico y rangos de precios de mercado\n"
+                "3. Rastrearé anuncios reales en portales especializados (Cosasdebarcos, TopBarcos, Boat24, Todobarco, Milanuncios...)\n"
+                "4. Analizaré los anuncios para darte recomendaciones de compra\n"
+                "5. Podrás preguntarme y conversar conmigo sobre cualquier modelo dentro del tema.",
                 thread_id,
             )
             return
 
         if text.startswith("/"):
-            return  # Ignorar otros comandos no reconocidos
+            return
 
-        # ── Detectar si es conversación de seguimiento ──
         is_general = not thread_id or thread_id == 1
         topic_key = f"{chat_id}:{thread_id}"
 
         if not is_general and topic_key in _topic_context:
-            # Es un mensaje de seguimiento dentro de un tema con contexto
             await self._handle_followup(chat_id, text, thread_id, topic_key)
             return
 
-        # ── Nueva búsqueda ──
         await self._handle_new_search(chat_id, text, thread_id, is_general)
 
     async def _handle_followup(self, chat_id: int, text: str, thread_id: int, topic_key: str) -> None:
@@ -179,24 +200,19 @@ class InteractiveTelegramBot:
         context = _topic_context.get(topic_key, "")
         logger.info("💬 Followup en tema %s: '%s'", thread_id, text[:50])
 
-        # Detectar si quiere una nueva búsqueda o es pregunta sobre resultados
-        search_words = ["busca", "encuentra", "búscame", "quiero comprar", "necesito"]
+        search_words = ["busca", "encuentra", "búscame", "quiero comprar", "necesito", "rastrea"]
         is_new_search = any(w in text.lower() for w in search_words) and len(text) > 20
 
         if is_new_search:
-            # Tratar como nueva búsqueda dentro del mismo tema
             await self._handle_new_search(chat_id, text, thread_id, is_general=False)
             return
 
-        # Pregunta sobre resultados previos → usar IA conversacional
-        await self.send_message(chat_id, "🤔 Analizando tu pregunta...", thread_id)
-
+        await self.send_message(chat_id, "🤔 Analizando tu consulta con el asesor...", thread_id)
         response = await self.ai.chat_followup(text, context)
         await self.send_message(chat_id, f"💡 {response}", thread_id)
 
     async def _handle_new_search(self, chat_id: int, text: str, thread_id: int | None, is_general: bool) -> None:
-        """Ejecuta una nueva búsqueda completa."""
-        # 1. Consultar IA para interpretar la búsqueda
+        """Ejecuta una nueva búsqueda completa con asesoramiento experto."""
         try:
             consult = await self.ai.consult_and_parse(text)
         except Exception as e:
@@ -209,7 +225,6 @@ class InteractiveTelegramBot:
         tags = consult["tags"]
         advice = consult["advice"]
 
-        # 2. Crear tema dedicado si estamos en General
         target_thread = thread_id
         if is_general:
             new_thread = await self.create_forum_topic(chat_id, topic_title)
@@ -218,70 +233,70 @@ class InteractiveTelegramBot:
                 await self.send_message(
                     chat_id,
                     f"🎯 He abierto el tema '{topic_title}' para tu búsqueda.\n"
-                    f"👉 Entra al tema para ver los resultados.",
+                    f"👉 Entra al tema para ver los resultados y asesoramiento.",
                     thread_id,
                 )
 
-        # 3. Publicar asesoramiento inicial
+        # 1. Publicar diagnóstico y asesoramiento inicial
         tags_str = " ".join(tags)
         await self.send_message(
             chat_id,
-            f"🧠 ASESORAMIENTO HUNTERBOT\n"
+            f"🧠 ASESORAMIENTO EXPERTO HUNTERBOT\n"
             f"🏷️ {tags_str}\n\n"
-            f"💡 {advice}\n\n"
-            f"🔎 Rastreando portales en tiempo real...",
+            f"💡 Diagnóstico de Mercado:\n{advice}\n\n"
+            f"🔎 Rastreando portales especializados en tiempo real...",
             target_thread,
         )
 
-        # 4. Ejecutar rastreo
+        # 2. Ejecutar rastreo
         engine = HunterEngine(self.cfg)
         try:
             results = await engine.search_all(criteria)
-
-            # Filtrar y ordenar
             filtered = [r for r in results if r.score >= self.cfg.opportunity_threshold]
             if not filtered and results:
-                filtered = results[:6]
+                filtered = results[:8]
+
+            portal_links = _get_portal_direct_links(criteria.category, criteria.query, criteria.location)
 
             if not filtered:
                 query_desc = criteria.query or criteria.location or "tu búsqueda"
                 no_results_msg = (
-                    f"🔍 He rastreado los portales para '{query_desc}' "
-                    f"pero no he detectado anuncios activos en este momento.\n\n"
-                    f"💬 Puedes intentar:\n"
-                    f"- Ampliar el presupuesto\n"
-                    f"- Buscar en zonas cercanas\n"
-                    f"- Cambiar los términos de búsqueda"
+                    f"🔍 RASTREO DIRECTO:\n"
+                    f"No se detectaron anuncios indexados recientemente para '{query_desc}'.\n\n"
+                    f"{portal_links}\n\n"
+                    f"💬 Si ves algún anuncio que te interese en estos enlaces, dime el modelo y precio aquí y lo analizamos juntos."
                 )
                 await self.send_message(chat_id, no_results_msg, target_thread)
                 return
 
-            # 5. Formatear y mostrar resultados
+            # 3. Formatear y mostrar resultados encontrados
             results_text, items_for_ai = self._format_results(filtered)
             await self.send_message(
                 chat_id,
-                f"🎯 RESULTADOS ({len(filtered)} opciones encontradas):\n\n{results_text}",
+                f"🎯 OFERTAS ENCONTRADAS ({len(filtered)} unidades indexadas):\n\n"
+                f"{results_text}\n\n"
+                f"{portal_links}",
                 target_thread,
             )
 
-            # 6. Pedir a la IA que ANALICE los resultados
+            # 4. Análisis comparativo con IA
             analysis = await self.ai.analyze_results(text, items_for_ai)
             if analysis:
                 await self.send_message(
                     chat_id,
-                    f"🧠 ANÁLISIS EXPERTO:\n\n{analysis}\n\n"
-                    f"💬 Pregúntame lo que quieras sobre estos resultados.",
+                    f"🧠 RECOMENDACIÓN DEL ASESOR:\n\n{analysis}\n\n"
+                    f"💬 Puedes preguntarme dudas sobre cualquier unidad (motorización, precio, negociación...)",
                     target_thread,
                 )
 
-            # 7. Guardar contexto para conversación de seguimiento
+            # 5. Guardar contexto
             topic_key = f"{chat_id}:{target_thread}"
             context_summary = (
                 f"Búsqueda: '{text}'\n"
                 f"Categoría: {criteria.category}\n"
                 f"Resultados:\n{json.dumps(items_for_ai[:5], ensure_ascii=False, default=str)}"
             )
-            _topic_context[topic_key] = context_summary[:2000]
+            _topic_context[topic_key] = context_summary[:2500]
 
         except Exception as e:
             logger.error("Error en búsqueda: %s", e, exc_info=True)
