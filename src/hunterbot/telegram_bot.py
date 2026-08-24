@@ -131,22 +131,31 @@ class InteractiveTelegramBot:
 
             details = []
             if item.length_m:
-                details.append(f"{item.length_m:.1f}m eslora")
+                details.append(f"{item.length_m:.1f}m")
+            if item.beam_m:
+                details.append(f"Manga {item.beam_m:.2f}m")
+            if item.engine_power_hp:
+                details.append(f"{int(item.engine_power_hp)} CV")
             if item.year_built:
                 details.append(f"Año {item.year_built}")
             if item.size_m2:
                 details.append(f"{int(item.size_m2)} m²")
-            if item.rooms:
-                details.append(f"{item.rooms} hab")
+            if item.land_type:
+                details.append(item.land_type)
             if item.location:
                 details.append(item.location[:20])
 
             detail_str = f" ({', '.join(details)})" if details else ""
             provider_str = f" [{item.provider.upper()}]" if item.provider else ""
 
+            # Añadir highlights detectados de la descripción
+            hl_str = ""
+            if item.highlights:
+                hl_str = "\n   ✨ " + " • ".join(item.highlights[:3])
+
             lines.append(
                 f"{i}. {title}{detail_str}\n"
-                f"   💰 {price_fmt}{provider_str}\n"
+                f"   💰 {price_fmt}{provider_str}{hl_str}\n"
                 f"   🔗 {item.url or 'Sin enlace'}"
             )
 
@@ -159,8 +168,16 @@ class InteractiveTelegramBot:
                 "location": item.location,
                 "size_m2": item.size_m2,
                 "length_m": item.length_m,
+                "beam_m": item.beam_m,
+                "engine_power_hp": item.engine_power_hp,
+                "engine_type": item.engine_type,
+                "engine_hours": item.engine_hours,
+                "has_trailer": item.has_trailer,
                 "year_built": item.year_built,
-                "description": item.description,
+                "land_type": item.land_type,
+                "utilities": item.utilities,
+                "highlights": item.highlights,
+                "description_raw": item.description,
             })
 
         return "\n\n".join(lines), items_for_ai
