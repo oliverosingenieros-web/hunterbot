@@ -100,3 +100,20 @@ class FirestoreDatabase:
         except Exception as e:
             logger.error("Error guardando oportunidad en Firestore: %s", e)
             return False
+
+    def log_interaction(self, chat_id: int, thread_id: int | None, user_text: str, bot_reply: str, event_type: str = "search") -> None:
+        """Guarda un registro de la conversación en Firestore para auditoría y depuración."""
+        if not self.enabled:
+            return
+        try:
+            self.db.collection("chat_history").add({
+                "chat_id": chat_id,
+                "thread_id": thread_id,
+                "user_text": user_text,
+                "bot_reply": bot_reply[:1000],
+                "event_type": event_type,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception as e:
+            logger.debug("No se pudo guardar log de chat: %s", e)
+
