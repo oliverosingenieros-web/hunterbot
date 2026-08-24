@@ -35,6 +35,7 @@ def _get_portal_direct_links(category: ItemCategory, query: str | None, location
     if category == ItemCategory.BOAT:
         return (
             "🚢 ACCESOS DIRECTOS A PORTALES NÁUTICOS:\n"
+            f"• Subito.it Náutica (Italia): https://www.subito.it/annunci-italia/vendita/nautica/?q={encoded}\n"
             f"• CosasDeBarcos: https://www.cosasdebarcos.com/barcos/buscar/?q={encoded}\n"
             f"• TopBarcos: https://www.topbarcos.com/barcos-ocasion?palabra={encoded}\n"
             f"• Boat24: https://www.boat24.com/es/barcos-de-ocasion/?whr={encoded}\n"
