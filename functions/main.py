@@ -3,6 +3,7 @@
 Endpoints:
 1. telegram_webhook: Recibe mensajes de Telegram en tiempo real vía Webhook.
 2. scheduled_hunter: Tarea programada que ejecuta las alertas recurrentes activadas por el usuario por hilo.
+3. api_search: API REST para invocar búsquedas estructuradas desde cuadernos Jupyter / Gemini Function Calling.
 """
 
 from __future__ import annotations
@@ -53,6 +54,122 @@ def telegram_webhook(req: https_fn.Request) -> https_fn.Response:
     except Exception as e:
         logger.error("Error en webhook de Telegram: %s", e, exc_info=True)
         return https_fn.Response("OK", status=200)
+
+
+@https_fn.on_request(region=SupportedRegion.US_CENTRAL1, memory=512, timeout_sec=120)
+def api_search(req: https_fn.Request) -> https_fn.Response:
+    """Endpoint REST JSON para invocar el motor de búsqueda desde Gemini o cuadernos externos.
+    
+    Acepta GET y POST:
+    - GET /api_search?q=zar+formenti&category=boat&location=malaga
+    - POST /api_search con body JSON: { "query": "...", "category": "boat", "location": "..." }
+    """
+    # Manejar CORS para invocaciones desde navegador o Colab
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+
+    if req.method == "OPTIONS":
+        return https_fn.Response("", status=204, headers=cors_headers)
+
+    query = ""
+    category_str = "other"
+    location = None
+    price_max = None
+    price_min = None
+
+    if req.method == "POST":
+        data = req.get_json(silent=True) or {}
+        query = data.get("query") or data.get("q") or ""
+        category_str = data.get("category") or "other"
+        location = data.get("location")
+        price_max = data.get("price_max")
+        price_min = data.get("price_min")
+    elif req.method == "GET":
+        query = req.args.get("q") or req.args.get("query") or ""
+        category_str = req.args.get("category") or "other"
+        location = req.args.get("location")
+        if req.args.get("price_max"):
+            try:
+                price_max = float(req.args.get("price_max"))
+            except ValueError:
+                pass
+
+    if not query and not location:
+        return https_fn.Response(
+            json.dumps({"error": "Parámetro 'query' o 'location' requerido", "items": []}),
+            status=400,
+            headers=cors_headers,
+        )
+
+    # Mapear categoría
+    cat = ItemCategory.OTHER
+    cat_lower = category_str.lower()
+    if "boat" in cat_lower or "barco" in cat_lower:
+        cat = ItemCategory.BOAT
+    elif "estate" in cat_lower or "inmob" in cat_lower or "casa" in cat_lower or "terreno" in cat_lower:
+        cat = ItemCategory.REAL_ESTATE
+    elif "product" in cat_lower or "zapat" in cat_lower or "ordenad" in cat_lower:
+        cat = ItemCategory.PRODUCT
+
+    criteria = SearchCriteria(
+        category=cat,
+        query=query,
+        location=location,
+        price_max=price_max,
+        price_min=price_min,
+        operation=Operation.SALE,
+    )
+
+    cfg = load_config("config.yaml")
+
+    async def _do_search():
+        engine = HunterEngine(cfg)
+        try:
+            results = await engine.search_all(criteria)
+            items_list = []
+            for opp in results:
+                it = opp.item
+                items_list.append({
+                    "id": it.id,
+                    "title": it.title,
+                    "price": it.price,
+                    "provider": it.provider,
+                    "url": it.url,
+                    "location": it.location,
+                    "length_m": it.length_m,
+                    "size_m2": it.size_m2,
+                    "rooms": it.rooms,
+                    "year_built": it.year_built,
+                    "score": round(opp.score, 2),
+                    "reasons": opp.reasons,
+                    "description": it.description,
+                })
+            return items_list
+        finally:
+            await engine.close()
+
+    try:
+        items = asyncio.run(_do_search())
+        payload = {
+            "success": True,
+            "query": query,
+            "category": cat.value,
+            "total": len(items),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "results": items,
+        }
+        return https_fn.Response(json.dumps(payload, ensure_ascii=False), status=200, headers=cors_headers)
+    except Exception as e:
+        logger.error("Error en api_search: %s", e, exc_info=True)
+        return https_fn.Response(
+            json.dumps({"success": False, "error": str(e), "results": []}),
+            status=500,
+            headers=cors_headers,
+        )
 
 
 @scheduler_fn.on_schedule(
