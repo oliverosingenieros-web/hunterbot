@@ -1,7 +1,11 @@
-// Configuración de Firebase para HunterBot
+// Configuración oficial completa de Firebase para HunterBot
 const firebaseConfig = {
-  projectId: "hunterbot-app",
+  apiKey: "AIzaSyDDMlrAtJzYkDe2pmq7CSaePiFb-Farluw",
   authDomain: "hunterbot-app.firebaseapp.com",
+  projectId: "hunterbot-app",
+  storageBucket: "hunterbot-app.firebasestorage.app",
+  messagingSenderId: "40227128039",
+  appId: "1:40227128039:web:75c07253fa458207561842"
 };
 
 // Inicializar Firebase
@@ -23,10 +27,11 @@ function listenOpportunities() {
         allOpportunities.push({ id: doc.id, ...doc.data() });
       });
 
+      console.log(`🔥 Oportunidades cargadas en vivo: ${allOpportunities.length}`);
       updateStats();
       renderCards();
     }, (error) => {
-      console.warn("Firestore offline o sin credenciales, mostrando datos locales:", error);
+      console.error("Error conectando con Firestore:", error);
       loadMockData();
     });
 }
@@ -70,8 +75,8 @@ function renderCards() {
     container.innerHTML = `
       <div class="col-span-full py-16 text-center text-slate-500 bg-slate-800/20 border border-dashed border-slate-800 rounded-3xl">
         <i class="fa-solid fa-magnifying-glass text-4xl mb-3 text-slate-600"></i>
-        <p class="text-lg font-medium text-slate-300">Esperando nuevas búsquedas desde Telegram</p>
-        <p class="text-sm text-slate-500 mt-1">Escribe cualquier consulta en tu bot para verla aquí en tiempo real.</p>
+        <p class="text-lg font-medium text-slate-300">Esperando nuevas búsquedas</p>
+        <p class="text-sm text-slate-500 mt-1">Escribe cualquier consulta en tu bot o en Antigravity para verla aquí en tiempo real.</p>
       </div>
     `;
     return;
