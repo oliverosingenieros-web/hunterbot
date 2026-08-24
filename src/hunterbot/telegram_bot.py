@@ -350,10 +350,125 @@ class InteractiveTelegramBot:
         finally:
             await engine.close()
 
+    async def _handle_direct_url_analysis(self, chat_id: int, url: str, user_prompt: str, thread_id: int | None) -> bool:
+        """Si el usuario proporciona una URL específica, descarga la página, extrae las opciones y genera el peritaje."""
+        try:
+            await self.send_message(chat_id, f"🔍 Entrando directamente a examinar el catálogo en:\n{url}", thread_id)
+            
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "es-ES,es;q=0.9",
+            }
+            async with httpx.AsyncClient(timeout=25.0, headers=headers, follow_redirects=True) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    await self.send_message(chat_id, f"⚠️ No se pudo acceder a la página ({resp.status_code}).", thread_id)
+                    return True
+
+                html = resp.text
+                parser = HTMLParser(html)
+                
+                # Extraer artículos/tarjetas de barcos del HTML
+                extracted_items = []
+                cards = parser.css("article") or parser.css("li[class*='item']") or parser.css("div[class*='item']") or parser.css("div[class*='card']") or parser.css(".c-pagination-item")
+                
+                base_domain = urllib.parse.urlparse(url).netloc
+                scheme = urllib.parse.urlparse(url).scheme or "https"
+
+                for card in cards:
+                    t_el = card.css_first("h2") or card.css_first("h3") or card.css_first("a[class*='enlacePrincipal']") or card.css_first("a")
+                    pr_el = card.css_first("[class*='price']") or card.css_first("[class*='precio']") or card.css_first("div[class*='text-main-color']") or card.css_first("span")
+                    link_el = card.css_first("a[href]")
+                    
+                    if t_el and link_el:
+                        title = t_el.text(strip=True)
+                        if len(title) < 4 or title.lower() in ["recreo", "yates", "velero", "catalogo", "todas"]:
+                            continue
+                        
+                        card_text = card.text(strip=True)
+                        price = extract_price(card_text)
+                        
+                        href = link_el.attributes.get("href", "")
+                        if not href.startswith("http"):
+                            href = f"{scheme}://{base_domain}{href}" if href.startswith("/") else f"{scheme}://{base_domain}/{href}"
+
+                        # Extraer eslora
+                        m_len = re.search(r"(\d{1,2}[.,]\d{1,2})\s*(?:m|metros)?", card_text)
+                        length_m = float(m_len.group(1).replace(",", ".")) if m_len else None
+
+                        extracted_items.append({
+                            "title": title,
+                            "price": price,
+                            "length_m": length_m,
+                            "url": href,
+                            "raw_text": card_text[:150]
+                        })
+
+                if not extracted_items:
+                    # Fallback buscando todos los enlaces principales con precios
+                    for a in parser.css("a[href]"):
+                        txt = a.text(strip=True)
+                        if any(k in txt.lower() for k in ["b2", "cap ferret", "beneteau", "flyer", "bayliner", "bavaria", "zar", "quicksilver"]):
+                            href = a.attributes.get("href", "")
+                            if not href.startswith("http"):
+                                href = f"{scheme}://{base_domain}{href}" if href.startswith("/") else f"{scheme}://{base_domain}/{href}"
+                            extracted_items.append({
+                                "title": txt,
+                                "price": 0.0,
+                                "length_m": None,
+                                "url": href,
+                                "raw_text": txt
+                            })
+
+                if not extracted_items:
+                    await self.send_message(chat_id, "⚠️ No se detectaron fichas de barcos legibles en esa URL.", thread_id)
+                    return True
+
+                # Filtrar si pide remolcables (eslora <= 6.5m o manga <= 2.55m)
+                remolcables = [it for it in extracted_items if it.get("length_m") and it["length_m"] <= 6.5]
+                if not remolcables:
+                    remolcables = extracted_items[:6]
+
+                # Formatear y enviar
+                lines = [f"🚢 BARCOS DETECTADOS EN {base_domain.upper()} (Criterio: Aptos para remolque < 6.5m):\n"]
+                for i, it in enumerate(remolcables[:6], 1):
+                    p_str = f"{it['price']:,.0f} €".replace(",", ".") if it["price"] > 0 else "Consultar precio"
+                    len_str = f" | Eslora: {it['length_m']}m" if it.get("length_m") else ""
+                    lines.append(f"{i}. {it['title']}{len_str}\n   💰 {p_str}\n   🔗 {it['url']}")
+
+                await self.send_message(chat_id, "\n\n".join(lines), thread_id)
+
+                # Dictamen del perito naval
+                analysis = await self.ai.analyze_results(user_prompt, remolcables[:6])
+                if analysis:
+                    report_ai = (
+                        f"🧠 PERITAJE NAVAL (Barcos Remolcables):\n\n{analysis}\n\n"
+                        f"💡 Nota técnica sobre remolque en España: Límite legal sin transporte especial = 2,55 m de manga y MMA del remolque según vehículo tractor (B o B96/B+E)."
+                    )
+                    await self.send_message(chat_id, report_ai, thread_id)
+                    self.db.log_interaction(chat_id, thread_id, user_prompt, report_ai, event_type="url_analysis")
+
+                return True
+        except Exception as e:
+            logger.error("Error analizando URL directa: %s", e, exc_info=True)
+            return False
+
     async def _handle_new_search(self, chat_id: int, text: str, thread_id: int | None, is_general: bool) -> None:
         """Ejecuta una nueva búsqueda completa activando únicamente las webs especializadas para la categoría."""
+        # Comprobar si el usuario envió una URL concreta para examinarla
+        url_match = re.search(r"https?://[^\s]+", text)
+        if url_match:
+            handled = await self._handle_direct_url_analysis(chat_id, url_match.group(0), text, thread_id)
+            if handled:
+                return
+
         try:
             consult = await self.ai.consult_and_parse(text)
+
         except Exception as e:
             logger.error("Error en IA: %s", e)
             await self.send_message(chat_id, "⚠️ Error analizando tu petición. Inténtalo de nuevo.", thread_id)
