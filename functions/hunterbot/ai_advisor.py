@@ -54,6 +54,7 @@ class HunterAIAdvisor:
                 "generationConfig": {
                     "temperature": 0.4,
                     "maxOutputTokens": 2500,
+                    "responseMimeType": "application/json",
                 },
             }
             req = urllib.request.Request(
@@ -221,21 +222,52 @@ class HunterAIAdvisor:
             "Eres un Perito Naval y Asesor de Compras senior en España.\n"
             "Tu tarea es evaluar las ofertas encontradas y dar un dictamen técnico al comprador.\n"
             "IDIOMA: Responde exclusivamente en ESPAÑOL DE ESPAÑA.\n"
-            "ESTRUCTURA DE TU RESPUESTA:\n"
-            "🏆 MEJOR ELECCIÓN: (Indica cuál es el mejor barco remolcable calidad-precio y por qué)\n"
-            "🔍 DETALLES TÉCNICOS: (Eslora, manga máxima legal de 2,55m para remolque, peso y motor)\n"
-            "⚠️ RIESGOS Y GASTOS: (Remolque no incluido, ITB, seguro, revisión de motor)\n"
-            "🎯 PRECIO DE NEGOCIACIÓN: (Recomendación de oferta a la baja)"
+            "REGLA CRÍTICA: NO INCLUYAS NINGÚN RAZONAMIENTO, NOTA, BORRADOR, NI TEXTO EN INGLÉS.\n"
+            "EL PRIMER CARÁCTER DE TU RESPUESTA DEBE SER EXACTAMENTE `{`.\n"
+            "Devuelve ÚNICAMENTE un JSON válido con la siguiente estructura:\n"
+            "{\n"
+            '  "mejor_eleccion": "🏆 MEJOR ELECCIÓN: (Indica cuál es el mejor barco remolcable calidad-precio y por qué)",\n'
+            '  "detalles_tecnicos": "🔍 DETALLES TÉCNICOS: (Eslora, manga máxima legal de 2,55m para remolque, peso y motor)",\n'
+            '  "riesgos_gastos": "⚠️ RIESGOS Y GASTOS: (Remolque no incluido, ITB, seguro, revisión de motor)",\n'
+            '  "precio_negociacion": "🎯 PRECIO DE NEGOCIACIÓN: (Recomendación de oferta a la baja)"\n'
+            "}"
         )
 
         user_content = (
             f"Consulta del comprador: '{user_query}'\n\n"
             f"Barcos encontrados en el catálogo:\n{summary_text}\n\n"
-            "Escribe tu dictamen en español directamente empezando por '🏆 MEJOR ELECCIÓN':"
+            "Escribe tu dictamen en español directamente en formato JSON:"
         )
 
         resp = self._call_model(system_instruction, user_content)
         if resp:
+            # Intentar extraer el JSON de la respuesta
+            json_match = re.search(r"\{.*\}", resp.replace("\n", " "), re.IGNORECASE)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(0))
+                    clean_resp = (
+                        f"{data.get('mejor_eleccion', '')}\n\n"
+                        f"{data.get('detalles_tecnicos', '')}\n\n"
+                        f"{data.get('riesgos_gastos', '')}\n\n"
+                        f"{data.get('precio_negociacion', '')}"
+                    ).replace("**", "").replace("__", "").replace("```", "").strip()
+                    return clean_resp[:2000]
+                except json.JSONDecodeError:
+                    pass
+            
+            # Fallback: Extraer líneas con emojis si el JSON falla
+            fallback_lines = []
+            for line in resp.split("\n"):
+                if any(e in line for e in ["🏆", "🔍", "⚠️", "🎯"]) or (fallback_lines and line.strip()):
+                    # Detenernos si empieza otro bloque de notas (Gemma artifact)
+                    if re.match(r"^\s*[*•-]?\s*(?:Subject|Role|Mission|Constraint|Drafting):", line, re.IGNORECASE):
+                        break
+                    fallback_lines.append(line)
+            
+            if fallback_lines:
+                return "\n".join(fallback_lines).replace("**", "").replace("__", "").strip()[:2000]
+
             clean_resp = resp.replace("**", "").replace("__", "").replace("```", "").strip()
             return clean_resp[:1200]
         return self._basic_analysis(results)
