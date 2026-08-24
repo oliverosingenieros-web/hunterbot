@@ -31,20 +31,27 @@ class FotocasaProvider(BaseProvider):
     async def search(self, criteria: SearchCriteria) -> list[Item]:
         """Busca inmuebles en Fotocasa."""
         op_path = "comprar" if criteria.operation == Operation.SALE else "alquiler"
-        loc = (criteria.location or "espana").lower().strip().replace(" ", "-")
-        
+        loc = (criteria.location or "espana").lower().strip()
+
+        # Limpiar comas y provincias añadidas "Foz, Lugo" -> "foz"
+        if "," in loc:
+            loc = loc.split(",")[0].strip()
+        loc = loc.replace(" ", "-")
+
         # Eliminar acentos para la URL
         replacements = {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n"}
         for a, b in replacements.items():
             loc = loc.replace(a, b)
-        
+
         prop_type = "viviendas"
         if criteria.property_types and "lands" in criteria.property_types:
             prop_type = "terrenos"
         elif criteria.property_types and "premises" in criteria.property_types:
             prop_type = "locales"
+        elif criteria.query and any(w in criteria.query.lower() for w in ["terreno", "parcela", "finca", "solar"]):
+            prop_type = "terrenos"
 
-        url = f"{self.base_url}/es/{op_path}/{prop_type}/{quote(loc)}/l"
+        url = f"{self.base_url}/es/{op_path}/{prop_type}/{quote(loc)}/todas-las-zonas/l"
 
         params: dict[str, str] = {}
         if criteria.price_min:
@@ -54,8 +61,8 @@ class FotocasaProvider(BaseProvider):
 
         items: list[Item] = []
         try:
-            # Headers extra para evitar 403
             extra_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Referer": "https://www.google.es/",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
@@ -63,16 +70,12 @@ class FotocasaProvider(BaseProvider):
                 url, params=params, rate_limit=self.default_rate_limit,
                 headers=extra_headers,
             )
-            if resp.status_code == 403:
-                logger.warning("Fotocasa devolvió 403 (bloqueado). Saltando.")
-                return []
             if resp.status_code != 200:
-                logger.warning("Fotocasa returned status %d", resp.status_code)
+                logger.warning("Fotocasa returned status %d for URL: %s", resp.status_code, url)
                 return []
 
             parser = HTMLParser(resp.text)
 
-            # Intentar extraer JSON-LD o scripts estructurados
             for script in parser.css('script[type="application/ld+json"]'):
                 try:
                     data = json.loads(script.text())
@@ -104,7 +107,6 @@ class FotocasaProvider(BaseProvider):
                 except Exception:
                     continue
 
-            # Fallback a parseo de tarjetas HTML directas
             if not items:
                 articles = parser.css("article.re-Card") or parser.css(".re-CardPackMinimal") or parser.css("[class*='re-Card']")
                 for art in articles:
@@ -138,5 +140,4 @@ class FotocasaProvider(BaseProvider):
         except Exception as e:
             logger.error("Error scrapeando Fotocasa: %s", e)
 
-        logger.info("Fotocasa: %d resultados encontrados", len(items))
         return items
