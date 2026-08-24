@@ -63,9 +63,16 @@ class Item:
     year_built: int | None = None
     engine_power_hp: float | None = None
     engine_type: str | None = None
+    engine_hours: int | None = None
     hull_material: str | None = None
     boat_type: str | None = None
     fuel_type: str | None = None
+    has_trailer: bool | None = None
+
+    # — Inmuebles detallados —
+    land_type: str | None = None
+    buildable_m2: float | None = None
+    utilities: str | None = None
 
     # — Campos calculados —
     price_per_m2: float | None = None
@@ -77,8 +84,9 @@ class Item:
 
     # — Datos extra flexibles (provider-specific) —
     extra: dict[str, Any] = field(default_factory=dict)
+    highlights: list[str] = field(default_factory=list)
 
-    # — Imagen (para Telegram) —
+    # — Imagen y Descripción completa del anuncio —
     image_url: str | None = None
     description: str | None = None
 
