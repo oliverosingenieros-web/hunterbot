@@ -399,19 +399,18 @@ class InteractiveTelegramBot:
                 
                 # Extraer artículos/tarjetas de barcos del HTML
                 extracted_items = []
-                cards = parser.css("article") or parser.css("li[class*='item']") or parser.css("div[class*='item']") or parser.css("div[class*='card']") or parser.css(".c-pagination-item")
+                cards = parser.css(".c-pagination-item") or parser.css("article") or parser.css("li[class*='item']") or parser.css("div[class*='item']") or parser.css("div[class*='card']")
                 
                 base_domain = urllib.parse.urlparse(url).netloc
                 scheme = urllib.parse.urlparse(url).scheme or "https"
 
                 for card in cards:
-                    t_el = card.css_first("h2") or card.css_first("h3") or card.css_first("a[class*='enlacePrincipal']") or card.css_first("a")
-                    pr_el = card.css_first("[class*='price']") or card.css_first("[class*='precio']") or card.css_first("div[class*='text-main-color']") or card.css_first("span")
-                    link_el = card.css_first("a[href]")
+                    t_el = card.css_first("a.enlacePrincipal") or card.css_first("h2") or card.css_first("h3") or card.css_first("a")
+                    link_el = card.css_first("a.enlacePrincipal") or card.css_first("a[href]")
                     
                     if t_el and link_el:
                         title = t_el.text(strip=True)
-                        if len(title) < 4 or title.lower() in ["recreo", "yates", "velero", "catalogo", "todas"]:
+                        if len(title) < 4 or title.lower() in ["recreo", "yates", "velero", "catalogo", "todas", "contacto"]:
                             continue
                         
                         card_text = card.text(strip=True)
@@ -421,48 +420,57 @@ class InteractiveTelegramBot:
                         if not href.startswith("http"):
                             href = f"{scheme}://{base_domain}{href}" if href.startswith("/") else f"{scheme}://{base_domain}/{href}"
 
-                        # Extraer eslora
-                        m_len = re.search(r"(\d{1,2}[.,]\d{1,2})\s*(?:m|metros)?", card_text)
-                        length_m = float(m_len.group(1).replace(",", ".")) if m_len else None
+                        # Heurística náutica avanzada para eslora y aptitud de remolque
+                        m_len = re.search(r"(\d{1,2}[.,]\d{1,2})\s*(?:m|metros)?", f"{title} {card_text}")
+                        m_num = re.search(r"\b(\d{3})\b", title) # Ej. Cap Ferret 522 -> 5.22m, Flyer 650 -> 6.5m
+                        m_feet = re.search(r"\b(\d{2})\b", title) # Ej. 37, 41 -> pies
+                        
+                        length_m = None
+                        is_trailerable = False
+                        
+                        if m_len:
+                            length_m = float(m_len.group(1).replace(",", "."))
+                        elif m_num:
+                            d = int(m_num.group(1))
+                            if 400 <= d <= 900:
+                                length_m = round(d / 100.0, 2)
+                        elif m_feet:
+                            ft = int(m_feet.group(1))
+                            if 14 <= ft <= 22:
+                                length_m = round(ft * 0.3048, 2)
+                            elif ft >= 28:
+                                length_m = round(ft * 0.3048, 2)
+
+                        if length_m and length_m <= 6.8:
+                            is_trailerable = True
+                        elif any(k in title.lower() for k in ["sundeck", "open", "semirigida", "cap ferret", "cap camarat", "quick", "zar", "522", "550", "600", "650"]):
+                            is_trailerable = True
+                            if not length_m:
+                                length_m = 5.5
 
                         extracted_items.append({
                             "title": title,
                             "price": price,
                             "length_m": length_m,
+                            "is_trailerable": is_trailerable,
                             "url": href,
-                            "raw_text": card_text[:150]
+                            "raw_text": card_text[:200]
                         })
-
-                if not extracted_items:
-                    # Fallback buscando todos los enlaces principales con precios
-                    for a in parser.css("a[href]"):
-                        txt = a.text(strip=True)
-                        if any(k in txt.lower() for k in ["b2", "cap ferret", "beneteau", "flyer", "bayliner", "bavaria", "zar", "quicksilver"]):
-                            href = a.attributes.get("href", "")
-                            if not href.startswith("http"):
-                                href = f"{scheme}://{base_domain}{href}" if href.startswith("/") else f"{scheme}://{base_domain}/{href}"
-                            extracted_items.append({
-                                "title": txt,
-                                "price": 0.0,
-                                "length_m": None,
-                                "url": href,
-                                "raw_text": txt
-                            })
 
                 if not extracted_items:
                     await self.send_message(chat_id, "⚠️ No se detectaron fichas de barcos legibles en esa URL.", thread_id)
                     return True
 
-                # Filtrar si pide remolcables (eslora <= 6.5m o manga <= 2.55m)
-                remolcables = [it for it in extracted_items if it.get("length_m") and it["length_m"] <= 6.5]
+                # Filtrar los remolcables reales según el pedido del usuario
+                remolcables = [it for it in extracted_items if it["is_trailerable"]]
                 if not remolcables:
                     remolcables = extracted_items[:6]
 
                 # Formatear y enviar
-                lines = [f"🚢 BARCOS DETECTADOS EN {base_domain.upper()} (Criterio: Aptos para remolque < 6.5m):\n"]
-                for i, it in enumerate(remolcables[:6], 1):
+                lines = [f"🚢 BARCOS IDENTIFICADOS EN {base_domain.upper()} (Filtrado: Aptos para remolque < 6.8m):\n"]
+                for i, it in enumerate(remolcables[:8], 1):
                     p_str = f"{it['price']:,.0f} €".replace(",", ".") if it["price"] > 0 else "Consultar precio"
-                    len_str = f" | Eslora: {it['length_m']}m" if it.get("length_m") else ""
+                    len_str = f" | Eslora est.: ~{it['length_m']}m" if it.get("length_m") else ""
                     lines.append(f"{i}. {it['title']}{len_str}\n   💰 {p_str}\n   🔗 {it['url']}")
 
                 await self.send_message(chat_id, "\n\n".join(lines), thread_id)
