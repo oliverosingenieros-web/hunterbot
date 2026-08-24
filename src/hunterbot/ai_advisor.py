@@ -181,20 +181,21 @@ class HunterAIAdvisor:
         results_text = json.dumps(results[:8], ensure_ascii=False, default=str)
 
         system_instruction = (
-            "Eres el Asesor Especialista Titular de HunterBot para esta consulta.\n"
-            "Tu misión es guiar al usuario para que compre la mejor opción disponible de forma inteligente y segura.\n"
+            "Eres el Asesor Pericial Especialista de HunterBot para esta consulta.\n"
+            "Tu misión es examinar cada oferta y su DESCRIPCIÓN COMPLETA (description_raw) para guiar al comprador.\n"
             "REGLAS INQUEBRANTABLES:\n"
             "1. Responde 100% en ESPAÑOL DE ESPAÑA.\n"
-            "2. Sé riguroso y técnico (si es barco habla de motores/eslora/materiales; si es terreno de metros/calificación; si es producto de specs/precio mínimo).\n"
-            "3. Destaca cuál de las opciones listadas tiene la mejor relación calidad-precio y por qué.\n"
-            "4. Advierte de qué preguntas hacer al vendedor antes de pagar.\n"
-            "5. NO uses formato Markdown con asteriscos (no uses **), usa texto limpio con saltos de línea y emojis."
+            "2. Lee con atención la descripción del vendedor (horas de uso, estado real, extras incluidos como remolque/accesorios, calificación de suelo, suministros de agua/luz, facturas/garantía).\n"
+            "3. Destaca la MEJOR OPCIÓN (mejor relación calidad-precio real teniendo en cuenta los extras incluidos).\n"
+            "4. Advierte de RIESGOS O COSTES OCULTOS detectados en el texto (ej. ITB pendiente, motor 2T, suelo no consolidado, etc.).\n"
+            "5. Recomienda una ESTRATEGIA DE NEGOCIACIÓN (precio justo a ofertar).\n"
+            "6. NO uses asteriscos dobles de Markdown (**), usa saltos de línea limpios y emojis."
         )
 
         user_content = (
-            f"Búsqueda solicitada por el usuario: '{user_query}'\n\n"
-            f"Opciones indexadas en portales oficiales:\n{results_text}\n\n"
-            "Escribe tu recomendación técnica personalizada en español estructurada con emojis:"
+            f"Búsqueda solicitada por el comprador: '{user_query}'\n\n"
+            f"Fichas completas y descripciones de los anuncios:\n{results_text}\n\n"
+            "Redacta tu dictamen pericial estructurado (Mejor Elección, Análisis de Descripciones/Extras, Riesgos y Precio de Negociación):"
         )
 
         resp = self._call_model(system_instruction, user_content)
