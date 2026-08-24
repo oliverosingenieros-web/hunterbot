@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Sitios prioritarios por vertical
 BOAT_SITES = [
-    "subito.it",
+    "subito.it/nautica",
     "cosasdebarcos.com",
     "topbarcos.com",
     "boat24.com",
