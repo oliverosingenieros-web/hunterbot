@@ -1,32 +1,35 @@
-"""Bot interactivo de Telegram con IA conversacional y búsqueda en tiempo real."""
+"""Bot interactivo de Telegram con IA conversacional, búsqueda y alertas recurrentes configurables."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import re
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from hunterbot.ai_advisor import HunterAIAdvisor
 from hunterbot.config import load_config
+from hunterbot.database_firebase import FirestoreDatabase
 from hunterbot.engine import HunterEngine
-from hunterbot.models import ItemCategory
+from hunterbot.models import ItemCategory, SearchCriteria
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 # Memoria de contexto por hilo (topic) para conversación
-_topic_context: dict[str, str] = {}
+_topic_context: dict[str, dict[str, Any]] = {}
 
 
 def _get_portal_direct_links(category: ItemCategory, query: str | None, location: str | None) -> str:
     """Genera accesos directos con filtros precargados a los portales líderes."""
     terms = " ".join(filter(None, [query, location])).strip()
     encoded = urllib.parse.quote_plus(terms)
-    
+
     if category == ItemCategory.BOAT:
         return (
             "🚢 ACCESOS DIRECTOS A PORTALES NÁUTICOS:\n"
@@ -54,7 +57,7 @@ def _get_portal_direct_links(category: ItemCategory, query: str | None, location
 
 
 class InteractiveTelegramBot:
-    """Escucha mensajes en Telegram, los interpreta con IA y ejecuta búsquedas."""
+    """Escucha mensajes en Telegram, los interpreta con IA, ejecuta búsquedas y gestiona alertas por hilo."""
 
     def __init__(self, config_path: str = "config.yaml") -> None:
         self.cfg = load_config(config_path)
@@ -62,9 +65,10 @@ class InteractiveTelegramBot:
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.last_update_id = 0
         self.ai = HunterAIAdvisor()
+        self.db = FirestoreDatabase()
 
     async def send_message(self, chat_id: str | int, text: str, thread_id: int | None = None) -> None:
-        """Envía un mensaje a Telegram. Sin Markdown para evitar errores de parseo."""
+        """Envía un mensaje a Telegram en texto plano."""
         async with httpx.AsyncClient(timeout=15.0) as client:
             payload: dict = {
                 "chat_id": chat_id,
@@ -150,6 +154,75 @@ class InteractiveTelegramBot:
 
         return "\n\n".join(lines), items_for_ai
 
+    async def _save_topic_subscription(
+        self, chat_id: int, thread_id: int, criteria: SearchCriteria, interval_days: int, original_query: str
+    ) -> None:
+        """Guarda o actualiza una suscripción de búsqueda recurrente en Firestore para el tema actual."""
+        if not self.db.enabled:
+            return
+
+        doc_id = f"{chat_id}_{thread_id}"
+        doc_ref = self.db.db.collection("active_alerts").document(doc_id)
+        data = {
+            "chat_id": chat_id,
+            "thread_id": thread_id,
+            "query": criteria.query or original_query,
+            "location": criteria.location,
+            "category": criteria.category.value,
+            "price_max": criteria.price_max,
+            "interval_days": interval_days,
+            "original_prompt": original_query,
+            "active": True,
+            "last_executed": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            doc_ref.set(data, merge=True)
+            logger.info("Alerta recurrente guardada para thread %s (cada %d días)", thread_id, interval_days)
+        except Exception as e:
+            logger.error("Error guardando alerta recurrente: %s", e)
+
+    async def _detect_and_set_recurring_alert(
+        self, chat_id: int, thread_id: int, text: str, context_dict: dict[str, Any]
+    ) -> bool:
+        """Detecta si el usuario está pidiendo rastreo recurrente (semanal, cada 10 días, mensual...)."""
+        lower = text.lower()
+        interval_days = 0
+
+        if "semanal" in lower or "cada semana" in lower or "cada 7 días" in lower or "cada 7 dias" in lower:
+            interval_days = 7
+        elif "cada 10 días" in lower or "cada 10 dias" in lower or "10 días" in lower or "10 dias" in lower:
+            interval_days = 10
+        elif "cada 15 días" in lower or "cada 15 dias" in lower or "quincenal" in lower:
+            interval_days = 15
+        elif "mensual" in lower or "cada mes" in lower or "cada 30 días" in lower or "cada 30 dias" in lower:
+            interval_days = 30
+        elif "diario" in lower or "cada día" in lower or "cada dia" in lower:
+            interval_days = 1
+        elif "seguir buscando" in lower or "sigue buscando" in lower or "busca recurrentemente" in lower or "avísame" in lower:
+            # Si no especifica días, por defecto semanal (7 días)
+            interval_days = 7
+
+        if interval_days > 0:
+            crit_dict = context_dict.get("criteria", {})
+            criteria = SearchCriteria(
+                category=ItemCategory(crit_dict.get("category", "boat")),
+                query=crit_dict.get("query"),
+                location=crit_dict.get("location"),
+                price_max=crit_dict.get("price_max"),
+            )
+            original_query = context_dict.get("query", text)
+            await self._save_topic_subscription(chat_id, thread_id, criteria, interval_days, original_query)
+
+            await self.send_message(
+                chat_id,
+                f"✅ ¡Entendido! He activado el rastreo recurrente para este tema cada {interval_days} días.\n\n"
+                f"Te publicaré un reporte exclusivo aquí dentro cuando haya nuevas ofertas o cambios en el mercado.\n"
+                f"Para detenerlo cuando quieras, solo escribe 'detener búsqueda recurrente' aquí.",
+                thread_id,
+            )
+            return True
+        return False
+
     async def process_message(self, message: dict) -> None:
         """Procesa un mensaje entrante de Telegram."""
         chat_id = message.get("chat", {}).get("id")
@@ -176,12 +249,18 @@ class InteractiveTelegramBot:
                 "Yo haré:\n"
                 "1. Abriré un tema dedicado para tu búsqueda\n"
                 "2. Te daré un asesoramiento técnico y rangos de precios de mercado\n"
-                "3. Rastrearé anuncios reales en portales especializados (Cosasdebarcos, TopBarcos, Boat24, Todobarco, Milanuncios...)\n"
+                "3. Rastrearé anuncios reales en portales especializados\n"
                 "4. Analizaré los anuncios para darte recomendaciones de compra\n"
-                "5. Podrás preguntarme y conversar conmigo sobre cualquier modelo dentro del tema.",
+                "5. Podrás pedirme que siga buscando de forma recurrente dentro del tema (ej. 'sigue buscando cada 10 días').",
                 thread_id,
             )
             return
+
+        # Petición de reporte manual dentro del tema
+        if text.startswith("/reporte") or "dame un reporte" in text.lower() or "reporte actual" in text.lower():
+            if thread_id:
+                await self._generate_topic_report(chat_id, thread_id)
+                return
 
         if text.startswith("/"):
             return
@@ -189,18 +268,32 @@ class InteractiveTelegramBot:
         is_general = not thread_id or thread_id == 1
         topic_key = f"{chat_id}:{thread_id}"
 
+        # Si el usuario pide desactivar la búsqueda recurrente en el hilo
+        if not is_general and ("detener" in text.lower() or "cancelar alerta" in text.lower() or "parar búsqueda" in text.lower()):
+            if self.db.enabled:
+                doc_id = f"{chat_id}_{thread_id}"
+                self.db.db.collection("active_alerts").document(doc_id).update({"active": False})
+            await self.send_message(chat_id, "🛑 Búsqueda recurrente desactivada para este tema.", thread_id)
+            return
+
         if not is_general and topic_key in _topic_context:
-            await self._handle_followup(chat_id, text, thread_id, topic_key)
+            # Comprobar si pide programar recurrencia
+            context_data = _topic_context[topic_key]
+            is_recurrence = await self._detect_and_set_recurring_alert(chat_id, thread_id, text, context_data)
+            if is_recurrence:
+                return
+
+            await self._handle_followup(chat_id, text, thread_id, context_data)
             return
 
         await self._handle_new_search(chat_id, text, thread_id, is_general)
 
-    async def _handle_followup(self, chat_id: int, text: str, thread_id: int, topic_key: str) -> None:
+    async def _handle_followup(self, chat_id: int, text: str, thread_id: int, context_data: dict[str, Any]) -> None:
         """Maneja preguntas de seguimiento dentro de un tema existente."""
-        context = _topic_context.get(topic_key, "")
+        context_str = json.dumps(context_data, ensure_ascii=False)
         logger.info("💬 Followup en tema %s: '%s'", thread_id, text[:50])
 
-        search_words = ["busca", "encuentra", "búscame", "quiero comprar", "necesito", "rastrea"]
+        search_words = ["busca", "encuentra", "búscame", "quiero comprar", "necesito", "rastrea de nuevo"]
         is_new_search = any(w in text.lower() for w in search_words) and len(text) > 20
 
         if is_new_search:
@@ -208,8 +301,40 @@ class InteractiveTelegramBot:
             return
 
         await self.send_message(chat_id, "🤔 Analizando tu consulta con el asesor...", thread_id)
-        response = await self.ai.chat_followup(text, context)
+        response = await self.ai.chat_followup(text, context_str)
         await self.send_message(chat_id, f"💡 {response}", thread_id)
+
+    async def _generate_topic_report(self, chat_id: int, thread_id: int) -> None:
+        """Genera un reporte actualizado específico para este tema/hilo."""
+        topic_key = f"{chat_id}:{thread_id}"
+        context_data = _topic_context.get(topic_key, {})
+        query = context_data.get("query", "tu búsqueda en este tema")
+        
+        await self.send_message(chat_id, f"📊 Generando reporte actualizado para '{query}'...", thread_id)
+        
+        # Ejecutar rastreo de actualización
+        crit_dict = context_data.get("criteria", {})
+        criteria = SearchCriteria(
+            category=ItemCategory(crit_dict.get("category", "boat")),
+            query=crit_dict.get("query", query),
+            location=crit_dict.get("location"),
+            price_max=crit_dict.get("price_max"),
+        )
+        
+        engine = HunterEngine(self.cfg)
+        try:
+            results = await engine.search_all(criteria)
+            results_text, items_for_ai = self._format_results(results[:6])
+            analysis = await self.ai.analyze_results(query, items_for_ai)
+            
+            report_msg = (
+                f"📋 REPORTE DE ACTUALIZACIÓN DEL TEMA:\n\n"
+                f"{results_text}\n\n"
+                f"🧠 BALANCE DEL ASESOR:\n{analysis}"
+            )
+            await self.send_message(chat_id, report_msg, thread_id)
+        finally:
+            await engine.close()
 
     async def _handle_new_search(self, chat_id: int, text: str, thread_id: int | None, is_general: bool) -> None:
         """Ejecuta una nueva búsqueda completa con asesoramiento experto."""
@@ -264,7 +389,7 @@ class InteractiveTelegramBot:
                     f"🔍 RASTREO DIRECTO:\n"
                     f"No se detectaron anuncios indexados recientemente para '{query_desc}'.\n\n"
                     f"{portal_links}\n\n"
-                    f"💬 Si ves algún anuncio que te interese en estos enlaces, dime el modelo y precio aquí y lo analizamos juntos."
+                    f"💬 Si quieres que siga buscando periódicamente, puedes decirme: 'sigue buscando cada 10 días' o 'avísame semanalmente'."
                 )
                 await self.send_message(chat_id, no_results_msg, target_thread)
                 return
@@ -285,18 +410,22 @@ class InteractiveTelegramBot:
                 await self.send_message(
                     chat_id,
                     f"🧠 RECOMENDACIÓN DEL ASESOR:\n\n{analysis}\n\n"
-                    f"💬 Puedes preguntarme dudas sobre cualquier unidad (motorización, precio, negociación...)",
+                    f"💬 Puedes preguntarme dudas, o pedirme: 'Sigue buscando cada 7 días' para mantener este tema actualizado.",
                     target_thread,
                 )
 
-            # 5. Guardar contexto
+            # 5. Guardar contexto estructurado del hilo
             topic_key = f"{chat_id}:{target_thread}"
-            context_summary = (
-                f"Búsqueda: '{text}'\n"
-                f"Categoría: {criteria.category}\n"
-                f"Resultados:\n{json.dumps(items_for_ai[:5], ensure_ascii=False, default=str)}"
-            )
-            _topic_context[topic_key] = context_summary[:2500]
+            _topic_context[topic_key] = {
+                "query": text,
+                "criteria": {
+                    "category": criteria.category.value,
+                    "query": criteria.query,
+                    "location": criteria.location,
+                    "price_max": criteria.price_max,
+                },
+                "items": items_for_ai[:6],
+            }
 
         except Exception as e:
             logger.error("Error en búsqueda: %s", e, exc_info=True)
