@@ -1,18 +1,13 @@
-"""Provider de búsqueda web especializada y scraping libre para portales náuticos e inmobiliarios.
-
-Usa el endpoint directo de HTML con dorks específicos hacia los principales
-portales náuticos (Cosasdebarcos, Topbarcos, Boat24, Milanuncios, Todobarco, Inautia)
-y portales inmobiliarios, con extracción avanzada de precios, esloras y años.
-"""
+"""Provider avanzado de rastreo e indexación directa de anuncios con precios y descripciones."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import re
 import urllib.parse
 import urllib.request
-from urllib.parse import parse_qs, urlparse
 from typing import Any
 
 from selectolax.parser import HTMLParser
@@ -23,70 +18,100 @@ from hunterbot.providers import register
 
 logger = logging.getLogger(__name__)
 
-# Dominios de barcos prioritarios
-BOAT_PORTALS = [
+# Portales oficiales por vertical
+BOAT_SITES = [
     "cosasdebarcos.com",
     "topbarcos.com",
     "boat24.com",
-    "milanuncios.com",
     "todobarco.com",
     "inautia.com",
-    "youboat.com",
-    "yachtworld.com",
-]
-
-# Dominios inmobiliarios prioritarios
-REAL_ESTATE_PORTALS = [
-    "idealista.com",
-    "fotocasa.es",
-    "pisos.com",
-    "habitaclia.com",
-    "yaencontre.com",
     "milanuncios.com",
 ]
 
+REAL_ESTATE_SITES = [
+    "pisos.com",
+    "fotocasa.es",
+    "idealista.com",
+    "habitaclia.com",
+    "yaencontre.com",
+]
 
-def _extract_price(text: str) -> float:
-    """Extrae el precio de forma exhaustiva cubriendo múltiples formatos (€, EUR, k€, etc.)."""
-    # 1. Formato estándar: "26.500 €", "35000 €", "42.000 EUR", "85.000 euros"
-    m1 = re.search(r"(\d{1,3}(?:[.,]\d{3})+|\d{2,6})\s*(?:€|EUR|euros?|eur\b)", text, re.IGNORECASE)
+PRODUCT_SITES = [
+    "chollometro.com",
+    "idealo.es",
+    "pccomponentes.com",
+    "amazon.es",
+    "mediamarkt.es",
+    "wallapop.com",
+]
+
+
+def unwrap_redirect_url(url: str) -> str:
+    """Extrae la URL limpia real desde redirecciones de buscadores (Bing / DuckDuckGo)."""
+    if "bing.com/ck/a" in url:
+        m = re.search(r"u=a1([a-zA-Z0-9_-]+)", url)
+        if m:
+            b64 = m.group(1).replace("-", "+").replace("_", "/")
+            b64 += "=" * ((4 - len(b64) % 4) % 4)
+            try:
+                decoded = base64.b64decode(b64).decode("utf-8", errors="ignore")
+                if decoded.startswith("http"):
+                    return decoded
+            except Exception:
+                pass
+
+    if "duckduckgo.com/l/?uddg=" in url:
+        m = re.search(r"uddg=([^&]+)", url)
+        if m:
+            return urllib.parse.unquote(m.group(1))
+
+    return url
+
+
+def extract_price(text: str) -> float:
+    """Extrae precios numéricos reales desde títulos o fragmentos descriptivos."""
+    if not text:
+        return 0.0
+
+    # 1. Formato estándar: "26.500 €", "26500€", "1.200.000 €"
+    m1 = re.search(r"(\d{1,3}(?:[.,]\d{3})+|\d{3,7})\s*(?:€|EUR|euros?)", text, re.IGNORECASE)
     if m1:
         raw = m1.group(1).replace(".", "").replace(",", "")
         try:
             val = float(raw)
-            if 500 <= val <= 50_000_000:
+            if 10 <= val <= 50_000_000:
                 return val
         except ValueError:
             pass
 
-    # 2. Formato con símbolo delante: "€ 26.500", "€26500", "EUR 45000"
-    m2 = re.search(r"(?:€|EUR)\s*(\d{1,3}(?:[.,]\d{3})+|\d{2,6})", text, re.IGNORECASE)
+    # 2. Formato con símbolo previo: "€ 26.500", "€26500", "EUR 45000"
+    m2 = re.search(r"(?:€|EUR)\s*(\d{1,3}(?:[.,]\d{3})+|\d{2,7})", text, re.IGNORECASE)
     if m2:
         raw = m2.group(1).replace(".", "").replace(",", "")
         try:
             val = float(raw)
-            if 500 <= val <= 50_000_000:
+            if 10 <= val <= 50_000_000:
                 return val
         except ValueError:
             pass
 
     # 3. Formato abreviado: "35k €", "35 k", "120k"
-    m3 = re.search(r"(\d{2,4})\s*k\s*(?:€|EUR|euros?)?", text, re.IGNORECASE)
+    m3 = re.search(r"(\d{1,4})\s*k\s*(?:€|EUR|euros?)?", text, re.IGNORECASE)
     if m3:
         try:
             val = float(m3.group(1)) * 1000
-            if 500 <= val <= 50_000_000:
+            if 10 <= val <= 50_000_000:
                 return val
         except ValueError:
             pass
 
-    # 4. Formato "Venta 26.500" o "Precio: 26500"
-    m4 = re.search(r"(?:precio|venta|desde|por)\s*:?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,6})", text, re.IGNORECASE)
+    # 4. Formato contextual: "precio: 26500", "por 35000", "venta 125.000"
+    m4 = re.search(r"(?:precio|venta|desde|por|oferta)\s*:?\s*(\d{1,3}(?:[.,]\d{3})+|\d{3,7})", text, re.IGNORECASE)
     if m4:
         raw = m4.group(1).replace(".", "").replace(",", "")
         try:
             val = float(raw)
-            if 500 <= val <= 50_000_000:
+            if 10 <= val <= 50_000_000:
                 return val
         except ValueError:
             pass
@@ -94,132 +119,153 @@ def _extract_price(text: str) -> float:
     return 0.0
 
 
+def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
+    """Extrae eslora, año de construcción, metros cuadrados o especificaciones clave."""
+    meta: dict[str, Any] = {}
+
+    if category == ItemCategory.BOAT:
+        # Eslora en metros (ej. "5.30 m", "5,70m", "10 metros")
+        m_len = re.search(r"(\d{1,2}[\.,]\d{1,2}|\d{1,2})\s*(?:m|metros|mts|eslora)", text, re.IGNORECASE)
+        if m_len:
+            try:
+                l_val = float(m_len.group(1).replace(",", "."))
+                if 2.0 <= l_val <= 100.0:
+                    meta["length_m"] = l_val
+            except ValueError:
+                pass
+
+        # Año de construcción (ej. "año 2018", "del 2021", "2015")
+        m_year = re.search(r"(?:año|del|de)?\s*(20[0-2]\d|199\d)", text, re.IGNORECASE)
+        if m_year:
+            meta["year_built"] = int(m_year.group(1))
+
+    elif category == ItemCategory.REAL_ESTATE:
+        # Metros cuadrados (ej. "1.500 m2", "85 m²")
+        m_sq = re.search(r"(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(?:m2|m²|metros cuadrados)", text, re.IGNORECASE)
+        if m_sq:
+            try:
+                s_val = float(m_sq.group(1).replace(".", "").replace(",", ""))
+                meta["size_m2"] = s_val
+            except ValueError:
+                pass
+
+        # Habitaciones
+        m_hab = re.search(r"(\d{1,2})\s*(?:hab|habitaciones|dormitorios)", text, re.IGNORECASE)
+        if m_hab:
+            meta["rooms"] = int(m_hab.group(1))
+
+    return meta
+
+
 @register
 class WebSearchProvider(BaseProvider):
-    """Provider especializado que indexa ofertas reales desde portales líderes."""
+    """Rastreador de alta precisión que extrae anuncios reales con descripciones y precios limpios."""
 
     name = "web_search"
-    display_name = "Rastreador Náutico & Inmobiliario"
+    display_name = "Rastreador Multi-Portal"
     category = ItemCategory.OTHER
     requires_api_key = False
     default_rate_limit = 1.0
 
     async def search(self, criteria: SearchCriteria) -> list[Item]:
-        """Realiza una búsqueda dirigida con dorks hacia portales relevantes."""
-        query_terms = []
-        if criteria.query:
-            query_terms.append(criteria.query)
+        """Busca anuncios con consultas optimizadas y extrae datos limpios."""
+        terms = [criteria.query or ""]
         if criteria.location:
-            query_terms.append(criteria.location)
-
-        base_q = " ".join(query_terms).strip()
+            terms.append(criteria.location)
+        base_q = " ".join(filter(None, terms)).strip()
         if not base_q:
             return []
 
-        # Construir consulta con portales prioritarios
+        # Seleccionar sitios según categoría
         if criteria.category == ItemCategory.BOAT:
-            site_filter = " OR ".join([f"site:{p}" for p in BOAT_PORTALS[:5]])
-            full_query = f"{base_q} ({site_filter})"
+            site_filter = " OR ".join([f"site:{s}" for s in BOAT_SITES[:4]])
         elif criteria.category == ItemCategory.REAL_ESTATE:
-            site_filter = " OR ".join([f"site:{p}" for p in REAL_ESTATE_PORTALS[:4]])
-            full_query = f"{base_q} ({site_filter})"
+            site_filter = " OR ".join([f"site:{s}" for s in REAL_ESTATE_SITES[:4]])
         else:
-            full_query = f"{base_q} (site:milanuncios.com OR site:wallapop.com OR site:amazon.es)"
+            site_filter = " OR ".join([f"site:{s}" for s in PRODUCT_SITES[:4]])
+
+        full_query = f"{base_q} ({site_filter})"
 
         loop = asyncio.get_running_loop()
 
-        def _fetch_listings() -> list[Item]:
+        def _fetch_bing() -> list[Item]:
             items: list[Item] = []
             try:
                 encoded = urllib.parse.quote_plus(full_query)
-                url = f"https://html.duckduckgo.com/html/?q={encoded}"
+                url = f"https://www.bing.com/search?q={encoded}"
                 req = urllib.request.Request(
                     url,
                     headers={
                         "User-Agent": (
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0.0.0 Safari/537.36"
                         ),
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                         "Accept-Language": "es-ES,es;q=0.9",
                     },
                 )
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                with urllib.request.urlopen(req, timeout=12) as resp:
                     html = resp.read().decode("utf-8", errors="replace")
                     parser = HTMLParser(html)
-                    results = parser.css(".result")
+                    cards = parser.css(".b_algo")
 
-                    for r in results:
-                        title_el = r.css_first(".result__title a")
-                        snippet_el = r.css_first(".result__snippet")
-                        if not title_el:
+                    for card in cards:
+                        link_el = card.css_first("h2 a")
+                        if not link_el:
                             continue
 
-                        raw_href = title_el.attributes.get("href", "")
-                        real_url = raw_href
-                        if "uddg=" in raw_href:
-                            parsed_u = urlparse(raw_href)
-                            qs = parse_qs(parsed_u.query)
-                            if "uddg" in qs:
-                                real_url = qs["uddg"][0]
+                        raw_title = link_el.text(strip=True)
+                        raw_url = link_el.attributes.get("href", "")
+                        clean_url = unwrap_redirect_url(raw_url)
 
-                        # Evitar páginas de publicidad de DDG
-                        if "duckduckgo.com/y.js" in real_url or "bing.com" in real_url:
-                            continue
+                        desc_el = card.css_first(".b_caption p") or card.css_first("p")
+                        snippet = desc_el.text(strip=True) if desc_el else ""
 
-                        title = title_el.text(strip=True)
-                        snippet = snippet_el.text(strip=True) if snippet_el else ""
+                        combined_text = f"{raw_title} {snippet}"
 
-                        # Detectar portal de procedencia
-                        provider_name = "portal_nautico"
-                        domain_match = urlparse(real_url).netloc.lower()
-                        for p in BOAT_PORTALS + REAL_ESTATE_PORTALS:
-                            if p in domain_match:
-                                provider_name = p.replace(".com", "").replace(".es", "")
+                        # Detectar portal de origen
+                        portal_name = "web"
+                        for s in BOAT_SITES + REAL_ESTATE_SITES + PRODUCT_SITES:
+                            if s in clean_url:
+                                portal_name = s.split(".")[0]
                                 break
 
-                        # Extraer precio con analizador ampliado
-                        combined = f"{title} {snippet} {real_url}"
-                        price = _extract_price(combined)
+                        # Extraer precio y metadatos
+                        price = extract_price(combined_text)
+                        meta = extract_metadata(combined_text, criteria.category)
 
-                        # Extraer eslora / dimensiones si es barco
-                        length_m = None
-                        m_len = re.search(r"(\d+[\.,]?\d*)\s*m\b", combined)
-                        if m_len:
-                            try:
-                                length_m = float(m_len.group(1).replace(",", "."))
-                            except ValueError:
-                                pass
+                        # Limpiar título de sufijos de marca
+                        clean_title = re.sub(
+                            r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon).*",
+                            "",
+                            raw_title,
+                            flags=re.IGNORECASE,
+                        ).strip()
 
-                        # Extraer año
-                        year = None
-                        m_yr = re.search(r"\b(19\d\d|20[0-2]\d)\b", combined)
-                        if m_yr:
-                            try:
-                                yr_val = int(m_yr.group(1))
-                                if 1970 <= yr_val <= 2026:
-                                    year = yr_val
-                            except ValueError:
-                                pass
+                        if len(clean_title) < 4:
+                            continue
 
                         items.append(
                             Item(
-                                id=self._make_id(str(hash(real_url))),
-                                provider=provider_name,
+                                id=self._make_id(clean_url or clean_title),
+                                provider=portal_name,
                                 category=criteria.category,
-                                title=title[:100],
+                                title=clean_title,
                                 price=price,
-                                length_m=length_m,
-                                year_built=year,
-                                url=real_url,
-                                description=snippet[:300] if snippet else None,
+                                url=clean_url,
+                                description=snippet[:300],
+                                length_m=meta.get("length_m"),
+                                year_built=meta.get("year_built"),
+                                size_m2=meta.get("size_m2"),
+                                rooms=meta.get("rooms"),
+                                location=criteria.location or "España",
                             )
                         )
             except Exception as e:
-                logger.error("Error en WebSearchProvider: %s", e)
+                logger.error("Error en rastreador web: %s", e)
 
             return items
 
-        results = await loop.run_in_executor(None, _fetch_listings)
-        logger.info("WebSearchProvider: %d anuncios obtenidos para '%s'", len(results), full_query)
-        return results
+        items = await loop.run_in_executor(None, _fetch_bing)
+        logger.info("Rastreador web: %d anuncios extraídos para '%s'", len(items), base_q)
+        return items
