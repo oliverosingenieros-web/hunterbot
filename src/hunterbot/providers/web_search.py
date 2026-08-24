@@ -18,7 +18,7 @@ from hunterbot.providers import register
 
 logger = logging.getLogger(__name__)
 
-# Portales oficiales por vertical
+# Sitios prioritarios por vertical
 BOAT_SITES = [
     "cosasdebarcos.com",
     "topbarcos.com",
@@ -176,96 +176,96 @@ class WebSearchProvider(BaseProvider):
         if not base_q:
             return []
 
-        # Seleccionar sitios según categoría
+        # Construir lista de queries dirigidas por portal para mayor cobertura
+        target_sites = []
         if criteria.category == ItemCategory.BOAT:
-            site_filter = " OR ".join([f"site:{s}" for s in BOAT_SITES[:4]])
+            target_sites = BOAT_SITES[:3]
         elif criteria.category == ItemCategory.REAL_ESTATE:
-            site_filter = " OR ".join([f"site:{s}" for s in REAL_ESTATE_SITES[:4]])
+            target_sites = REAL_ESTATE_SITES[:3]
         else:
-            site_filter = " OR ".join([f"site:{s}" for s in PRODUCT_SITES[:4]])
-
-        full_query = f"{base_q} ({site_filter})"
+            target_sites = PRODUCT_SITES[:3]
 
         loop = asyncio.get_running_loop()
 
-        def _fetch_bing() -> list[Item]:
+        def _fetch_all_sites() -> list[Item]:
             items: list[Item] = []
-            try:
-                encoded = urllib.parse.quote_plus(full_query)
+            seen_urls: set[str] = set()
+
+            for site in target_sites:
+                query = f"site:{site} {base_q}"
+                encoded = urllib.parse.quote_plus(query)
                 url = f"https://www.bing.com/search?q={encoded}"
-                req = urllib.request.Request(
-                    url,
-                    headers={
-                        "User-Agent": (
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/124.0.0.0 Safari/537.36"
-                        ),
-                        "Accept-Language": "es-ES,es;q=0.9",
-                    },
-                )
-                with urllib.request.urlopen(req, timeout=12) as resp:
-                    html = resp.read().decode("utf-8", errors="replace")
-                    parser = HTMLParser(html)
-                    cards = parser.css(".b_algo")
 
-                    for card in cards:
-                        link_el = card.css_first("h2 a")
-                        if not link_el:
-                            continue
+                try:
+                    req = urllib.request.Request(
+                        url,
+                        headers={
+                            "User-Agent": (
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                "Chrome/124.0.0.0 Safari/537.36"
+                            ),
+                            "Accept-Language": "es-ES,es;q=0.9",
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=8) as resp:
+                        html = resp.read().decode("utf-8", errors="replace")
+                        parser = HTMLParser(html)
+                        cards = parser.css(".b_algo")
 
-                        raw_title = link_el.text(strip=True)
-                        raw_url = link_el.attributes.get("href", "")
-                        clean_url = unwrap_redirect_url(raw_url)
+                        for card in cards:
+                            link_el = card.css_first("h2 a")
+                            if not link_el:
+                                continue
 
-                        desc_el = card.css_first(".b_caption p") or card.css_first("p")
-                        snippet = desc_el.text(strip=True) if desc_el else ""
+                            raw_title = link_el.text(strip=True)
+                            raw_url = link_el.attributes.get("href", "")
+                            clean_url = unwrap_redirect_url(raw_url)
 
-                        combined_text = f"{raw_title} {snippet}"
+                            if clean_url in seen_urls:
+                                continue
+                            seen_urls.add(clean_url)
 
-                        # Detectar portal de origen
-                        portal_name = "web"
-                        for s in BOAT_SITES + REAL_ESTATE_SITES + PRODUCT_SITES:
-                            if s in clean_url:
-                                portal_name = s.split(".")[0]
-                                break
+                            desc_el = card.css_first(".b_caption p") or card.css_first("p")
+                            snippet = desc_el.text(strip=True) if desc_el else ""
 
-                        # Extraer precio y metadatos
-                        price = extract_price(combined_text)
-                        meta = extract_metadata(combined_text, criteria.category)
+                            combined_text = f"{raw_title} {snippet}"
+                            portal_name = site.split(".")[0]
 
-                        # Limpiar título de sufijos de marca
-                        clean_title = re.sub(
-                            r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon).*",
-                            "",
-                            raw_title,
-                            flags=re.IGNORECASE,
-                        ).strip()
+                            price = extract_price(combined_text)
+                            meta = extract_metadata(combined_text, criteria.category)
 
-                        if len(clean_title) < 4:
-                            continue
+                            clean_title = re.sub(
+                                r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon).*",
+                                "",
+                                raw_title,
+                                flags=re.IGNORECASE,
+                            ).strip()
 
-                        items.append(
-                            Item(
-                                id=self._make_id(clean_url or clean_title),
-                                provider=portal_name,
-                                category=criteria.category,
-                                title=clean_title,
-                                price=price,
-                                url=clean_url,
-                                description=snippet[:300],
-                                length_m=meta.get("length_m"),
-                                year_built=meta.get("year_built"),
-                                size_m2=meta.get("size_m2"),
-                                rooms=meta.get("rooms"),
-                                location=criteria.location or "España",
+                            if len(clean_title) < 4:
+                                continue
+
+                            items.append(
+                                Item(
+                                    id=self._make_id(clean_url or clean_title),
+                                    provider=portal_name,
+                                    category=criteria.category,
+                                    title=clean_title,
+                                    price=price,
+                                    url=clean_url,
+                                    description=snippet[:300],
+                                    length_m=meta.get("length_m"),
+                                    year_built=meta.get("year_built"),
+                                    size_m2=meta.get("size_m2"),
+                                    rooms=meta.get("rooms"),
+                                    location=criteria.location or "España",
+                                )
                             )
-                        )
-            except Exception as e:
-                logger.error("Error en rastreador web: %s", e)
+                except Exception as e:
+                    logger.debug("Error consultando site:%s: %s", site, e)
 
             return items
 
-        items = await loop.run_in_executor(None, _fetch_bing)
+        items = await loop.run_in_executor(None, _fetch_all_sites)
         logger.info("Rastreador web: %d anuncios extraídos para '%s'", len(items), base_q)
         return items
