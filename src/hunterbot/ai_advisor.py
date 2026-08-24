@@ -69,8 +69,18 @@ class HunterAIAdvisor:
                         parts = candidates[0].get("content", {}).get("parts", [])
                         text = parts[0].get("text", "") if parts else ""
                         if text:
-                            logger.info("IA respondió con modelo %s (%d chars)", model_name, len(text))
-                            return text
+                            # Filtrar notas de razonamiento interno del modelo (ej. * Role: ..., * Constraints: ...)
+                            lines = text.strip().split("\n")
+                            cleaned_lines = []
+                            for line in lines:
+                                l_str = line.strip()
+                                if re.match(r"^\*\s*(?:Role|Mission|Input|User Request|Data Provided|Constraints|Item \d|Language|Task|Intent|Direct response):", l_str, re.IGNORECASE):
+                                    continue
+                                cleaned_lines.append(line)
+                            cleaned_text = "\n".join(cleaned_lines).strip()
+                            if cleaned_text:
+                                logger.info("IA respondió con modelo %s (%d chars)", model_name, len(cleaned_text))
+                                return cleaned_text
             except Exception as e:
                 logger.warning("Error llamando modelo %s: %s", model_name, e)
         return ""
