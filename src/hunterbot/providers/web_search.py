@@ -2,7 +2,7 @@
 
 Usa el endpoint directo de HTML con dorks específicos hacia los principales
 portales náuticos (Cosasdebarcos, Topbarcos, Boat24, Milanuncios, Todobarco, Inautia)
-y portales inmobiliarios para esquivar los bloqueos de Cloudflare y obtener anuncios reales.
+y portales inmobiliarios, con extracción avanzada de precios, esloras y años.
 """
 
 from __future__ import annotations
@@ -44,6 +44,54 @@ REAL_ESTATE_PORTALS = [
     "yaencontre.com",
     "milanuncios.com",
 ]
+
+
+def _extract_price(text: str) -> float:
+    """Extrae el precio de forma exhaustiva cubriendo múltiples formatos (€, EUR, k€, etc.)."""
+    # 1. Formato estándar: "26.500 €", "35000 €", "42.000 EUR", "85.000 euros"
+    m1 = re.search(r"(\d{1,3}(?:[.,]\d{3})+|\d{2,6})\s*(?:€|EUR|euros?|eur\b)", text, re.IGNORECASE)
+    if m1:
+        raw = m1.group(1).replace(".", "").replace(",", "")
+        try:
+            val = float(raw)
+            if 500 <= val <= 50_000_000:
+                return val
+        except ValueError:
+            pass
+
+    # 2. Formato con símbolo delante: "€ 26.500", "€26500", "EUR 45000"
+    m2 = re.search(r"(?:€|EUR)\s*(\d{1,3}(?:[.,]\d{3})+|\d{2,6})", text, re.IGNORECASE)
+    if m2:
+        raw = m2.group(1).replace(".", "").replace(",", "")
+        try:
+            val = float(raw)
+            if 500 <= val <= 50_000_000:
+                return val
+        except ValueError:
+            pass
+
+    # 3. Formato abreviado: "35k €", "35 k", "120k"
+    m3 = re.search(r"(\d{2,4})\s*k\s*(?:€|EUR|euros?)?", text, re.IGNORECASE)
+    if m3:
+        try:
+            val = float(m3.group(1)) * 1000
+            if 500 <= val <= 50_000_000:
+                return val
+        except ValueError:
+            pass
+
+    # 4. Formato "Venta 26.500" o "Precio: 26500"
+    m4 = re.search(r"(?:precio|venta|desde|por)\s*:?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,6})", text, re.IGNORECASE)
+    if m4:
+        raw = m4.group(1).replace(".", "").replace(",", "")
+        try:
+            val = float(raw)
+            if 500 <= val <= 50_000_000:
+                return val
+        except ValueError:
+            pass
+
+    return 0.0
 
 
 @register
@@ -115,7 +163,7 @@ class WebSearchProvider(BaseProvider):
                             if "uddg" in qs:
                                 real_url = qs["uddg"][0]
 
-                        # Evitar páginas de anuncios genéricos / publicidad de DDG
+                        # Evitar páginas de publicidad de DDG
                         if "duckduckgo.com/y.js" in real_url or "bing.com" in real_url:
                             continue
 
@@ -130,15 +178,9 @@ class WebSearchProvider(BaseProvider):
                                 provider_name = p.replace(".com", "").replace(".es", "")
                                 break
 
-                        # Extraer precio si está presente
-                        price = 0.0
-                        combined = f"{title} {snippet}"
-                        m_price = re.search(r"(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*(?:€|EUR|euros)", combined, re.IGNORECASE)
-                        if m_price:
-                            try:
-                                price = float(m_price.group(1).replace(".", "").replace(",", "."))
-                            except ValueError:
-                                pass
+                        # Extraer precio con analizador ampliado
+                        combined = f"{title} {snippet} {real_url}"
+                        price = _extract_price(combined)
 
                         # Extraer eslora / dimensiones si es barco
                         length_m = None
@@ -154,7 +196,9 @@ class WebSearchProvider(BaseProvider):
                         m_yr = re.search(r"\b(19\d\d|20[0-2]\d)\b", combined)
                         if m_yr:
                             try:
-                                year = int(m_yr.group(1))
+                                yr_val = int(m_yr.group(1))
+                                if 1970 <= yr_val <= 2026:
+                                    year = yr_val
                             except ValueError:
                                 pass
 
