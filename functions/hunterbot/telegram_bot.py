@@ -315,7 +315,9 @@ class InteractiveTelegramBot:
 
         await self.send_message(chat_id, "🤔 Analizando tu consulta con el asesor...", thread_id)
         response = await self.ai.chat_followup(text, context_str)
-        await self.send_message(chat_id, f"💡 {response}", thread_id)
+        reply = f"💡 {response}"
+        await self.send_message(chat_id, reply, thread_id)
+        self.db.log_interaction(chat_id, thread_id, text, reply, event_type="followup")
 
     async def _generate_topic_report(self, chat_id: int, thread_id: int) -> None:
         """Genera un reporte actualizado específico para este tema/hilo."""
@@ -425,12 +427,16 @@ class InteractiveTelegramBot:
             # 4. Análisis comparativo con IA
             analysis = await self.ai.analyze_results(text, items_for_ai)
             if analysis:
+                reply_analysis = (
+                    f"🧠 RECOMENDACIÓN DEL ASESOR:\n\n{analysis}\n\n"
+                    f"💬 Puedes preguntarme dudas, o pedirme: 'Sigue buscando cada 7 días' para mantener este tema actualizado."
+                )
                 await self.send_message(
                     chat_id,
-                    f"🧠 RECOMENDACIÓN DEL ASESOR:\n\n{analysis}\n\n"
-                    f"💬 Puedes preguntarme dudas, o pedirme: 'Sigue buscando cada 7 días' para mantener este tema actualizado.",
+                    reply_analysis,
                     target_thread,
                 )
+                self.db.log_interaction(chat_id, target_thread, text, reply_analysis, event_type="new_search")
 
             # 5. Guardar contexto
             topic_key = f"{chat_id}:{target_thread}"
