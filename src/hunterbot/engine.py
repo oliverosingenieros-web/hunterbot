@@ -66,16 +66,16 @@ class HunterEngine:
 
         all_items: list[Item] = []
         for i, res in enumerate(results_nested):
+            p_name = target_providers[i].name
             if isinstance(res, Exception):
-                logger.error(
-                    "Error en provider '%s': %s",
-                    target_providers[i].name,
-                    res,
-                )
+                logger.error("Provider '%s' falló con excepción: %s", p_name, res)
             elif isinstance(res, list):
+                logger.info("Provider '%s' devolvió %d items", p_name, len(res))
                 all_items.extend(res)
+            else:
+                logger.warning("Provider '%s' devolvió tipo inesperado: %s", p_name, type(res))
 
-        logger.info("Total items encontrados: %d", len(all_items))
+        logger.info("Total items agregados de todos los providers: %d", len(all_items))
 
         if not all_items:
             return []
@@ -120,19 +120,15 @@ class HunterEngine:
         # Ordenar por score descendente
         scored.sort(key=lambda x: x.score, reverse=True)
 
-        # 4. Sincronizar en la nube con Firestore (si está configurado)
+        # 4. Sincronizar en tiempo real con Cloud Firestore para alimentar Netlify
         try:
             from hunterbot.database_firebase import FirestoreDatabase
             fs_db = FirestoreDatabase()
             if fs_db.enabled:
-                for opp in scored[:10]:  # Limitar a top 10
-                    if opp.score >= self.config.opportunity_threshold:
-                        fs_db.save_opportunity(opp)
-        except Exception:
-            pass  # Firestore es opcional
-
-        # NOTA: NO enviamos notificaciones Telegram desde el engine.
-        # Las notificaciones las gestiona telegram_bot.py directamente
-        # para evitar mensajes duplicados.
+                for opp in scored[:12]:
+                    fs_db.save_opportunity(opp)
+                logger.info("🔥 %d oportunidades sincronizadas con Firestore para Netlify", len(scored[:12]))
+        except Exception as e:
+            logger.warning("Error sincronizando con Firestore: %s", e)
 
         return scored
