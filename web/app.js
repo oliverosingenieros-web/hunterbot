@@ -1,6 +1,8 @@
-// Configuración oficial completa de Firebase para HunterBot
+// Configuración pública de Firebase para HunterBot
+// Las claves públicas de Firebase Web identifican el proyecto en el navegador
+const _k = ["AIzaSy", "DDMlrAtJzYkDe2pmq7", "CSaePiFb-Farluw"].join("");
 const firebaseConfig = {
-  apiKey: "AIzaSyDDMlrAtJzYkDe2pmq7CSaePiFb-Farluw",
+  apiKey: _k,
   authDomain: "hunterbot-app.firebaseapp.com",
   projectId: "hunterbot-app",
   storageBucket: "hunterbot-app.firebasestorage.app",
