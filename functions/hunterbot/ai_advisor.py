@@ -207,24 +207,31 @@ class HunterAIAdvisor:
         if not self.is_available:
             return self._basic_analysis(results)
 
-        results_text = json.dumps(results[:8], ensure_ascii=False, default=str)
+        items_summary = []
+        for r in results[:8]:
+            title = r.get("title", "Barco")
+            price = f"{r.get('price', 0):,.0f} €" if r.get("price", 0) > 0 else "Consultar precio"
+            length = f"Eslora: {r.get('length_m')}m" if r.get("length_m") else ""
+            desc = r.get("raw_text") or r.get("description_raw") or ""
+            items_summary.append(f"- {title} ({price}, {length}): {desc[:120]}")
+
+        summary_text = "\n".join(items_summary)
 
         system_instruction = (
-            "Eres el Asesor Pericial Especialista de HunterBot para esta consulta.\n"
-            "Tu misión es examinar cada oferta y su DESCRIPCIÓN COMPLETA (description_raw) para guiar al comprador.\n"
-            "REGLAS INQUEBRANTABLES:\n"
-            "1. Responde 100% en ESPAÑOL DE ESPAÑA.\n"
-            "2. Lee con atención la descripción del vendedor (horas de uso, estado real, extras incluidos como remolque/accesorios, calificación de suelo, suministros de agua/luz, facturas/garantía).\n"
-            "3. Destaca la MEJOR OPCIÓN (mejor relación calidad-precio real teniendo en cuenta los extras incluidos).\n"
-            "4. Advierte de RIESGOS O COSTES OCULTOS detectados en el texto (ej. ITB pendiente, motor 2T, suelo no consolidado, etc.).\n"
-            "5. Recomienda una ESTRATEGIA DE NEGOCIACIÓN (precio justo a ofertar).\n"
-            "6. NO uses asteriscos dobles de Markdown (**), usa saltos de línea limpios y emojis."
+            "Eres un Perito Naval y Asesor de Compras senior en España.\n"
+            "Tu tarea es evaluar las ofertas encontradas y dar un dictamen técnico al comprador.\n"
+            "IDIOMA: Responde exclusivamente en ESPAÑOL DE ESPAÑA.\n"
+            "ESTRUCTURA DE TU RESPUESTA:\n"
+            "🏆 MEJOR ELECCIÓN: (Indica cuál es el mejor barco remolcable calidad-precio y por qué)\n"
+            "🔍 DETALLES TÉCNICOS: (Eslora, manga máxima legal de 2,55m para remolque, peso y motor)\n"
+            "⚠️ RIESGOS Y GASTOS: (Remolque no incluido, ITB, seguro, revisión de motor)\n"
+            "🎯 PRECIO DE NEGOCIACIÓN: (Recomendación de oferta a la baja)"
         )
 
         user_content = (
-            f"Búsqueda solicitada por el comprador: '{user_query}'\n\n"
-            f"Fichas completas y descripciones de los anuncios:\n{results_text}\n\n"
-            "Redacta tu dictamen pericial estructurado (Mejor Elección, Análisis de Descripciones/Extras, Riesgos y Precio de Negociación):"
+            f"Consulta del comprador: '{user_query}'\n\n"
+            f"Barcos encontrados en el catálogo:\n{summary_text}\n\n"
+            "Escribe tu dictamen en español directamente empezando por '🏆 MEJOR ELECCIÓN':"
         )
 
         resp = self._call_model(system_instruction, user_content)
