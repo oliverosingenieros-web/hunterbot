@@ -18,14 +18,7 @@ _REGISTRY: dict[str, type[BaseProvider]] = {}
 
 
 def register(cls: type[BaseProvider]) -> type[BaseProvider]:
-    """Decorador para registrar un provider en el registry.
-
-    Uso:
-        @register
-        class MiProvider(BaseProvider):
-            name = "mi_provider"
-            ...
-    """
+    """Decorador para registrar un provider en el registry."""
     _REGISTRY[cls.name] = cls
     logger.debug("Provider registrado: %s", cls.name)
     return cls
@@ -71,6 +64,7 @@ def _discover_providers() -> None:
     from hunterbot.providers import (  # type: ignore[attr-defined]
         amazon,
         boat24,
+        chollometro,
         cosasdebarcos,
         fotocasa,
         idealista,
