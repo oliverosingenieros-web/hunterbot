@@ -6,8 +6,8 @@ import logging
 from typing import Any
 
 from hunterbot.models import Item, ItemCategory, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,12 @@ class WallapopProvider(BaseProvider):
 
         items: list[Item] = []
         try:
-            resp = await self.http.get(self.base_url, params=params, headers=headers, rate_limit=self.default_rate_limit)
+            resp = await self.http.get(
+                self.base_url,
+                params=params,
+                headers=headers,
+                rate_limit=self.default_rate_limit,
+            )
             if resp.status_code != 200:
                 logger.warning("Wallapop API returned status %d", resp.status_code)
                 return []
@@ -57,14 +62,30 @@ class WallapopProvider(BaseProvider):
             for obj in search_objects:
                 item_id = self._make_id(str(obj.get("id", "")))
                 price_data = obj.get("price", {})
-                price = float(price_data.get("amount", 0.0) if isinstance(price_data, dict) else (obj.get("price") or 0.0))
-                currency = price_data.get("currency", "EUR") if isinstance(price_data, dict) else "EUR"
+                price = float(
+                    price_data.get("amount", 0.0)
+                    if isinstance(price_data, dict)
+                    else (obj.get("price") or 0.0)
+                )
+                currency = (
+                    price_data.get("currency", "EUR")
+                    if isinstance(price_data, dict)
+                    else "EUR"
+                )
 
                 web_slug = obj.get("web_slug", "")
-                url = f"https://es.wallapop.com/item/{web_slug}" if web_slug else f"https://es.wallapop.com/item/{obj.get('id')}"
+                url = (
+                    f"https://es.wallapop.com/item/{web_slug}"
+                    if web_slug
+                    else f"https://es.wallapop.com/item/{obj.get('id')}"
+                )
 
                 images = obj.get("images", [])
-                image_url = images[0].get("original") if images and isinstance(images[0], dict) else None
+                image_url = (
+                    images[0].get("original")
+                    if images and isinstance(images[0], dict)
+                    else None
+                )
 
                 items.append(
                     Item(
