@@ -233,11 +233,19 @@ def scheduled_hunter(event: scheduler_fn.ScheduledEvent) -> None:
                         results_text, items_for_ai = bot._format_results(filtered)
                         analysis = await bot.ai.analyze_results(query, items_for_ai)
 
+                        quota_msg = ""
+                        idealista_provider = next((p for p in engine.providers if p.name == "idealista"), None)
+                        if idealista_provider and hasattr(idealista_provider, "_quota_usage"):
+                            usage = idealista_provider._quota_usage
+                            days = idealista_provider._quota_days
+                            if usage > 0:
+                                quota_msg = f"\n\n📊 *Cuota API Idealista*: {100 - usage}/100 restantes. Quedan {days} días (fin: 25/11/26)."
+
                         report_msg = (
                             f"🔔 ACTUALIZACIÓN PERIÓDICA PROGRAMADA (cada {interval_days} días):\n\n"
                             f"{results_text}\n\n"
-                            f"🧠 ANÁLISIS DEL ASESOR:\n{analysis}\n\n"
-                            f"💬 Para detener estas actualizaciones, responde 'detener búsqueda recurrente'."
+                            f"🤖 ANÁLISIS DEL ASESOR:\n{analysis}\n\n"
+                            f"💡 Para detener estas actualizaciones, responde 'detener búsqueda recurrente'.{quota_msg}"
                         )
                         await bot.send_message(chat_id, report_msg, thread_id)
 
