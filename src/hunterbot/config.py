@@ -13,7 +13,6 @@ except ImportError:
     yaml = None
 
 
-
 DEFAULT_CONFIG_PATHS = [
     Path("config.yaml"),
     Path("config.yml"),
@@ -167,8 +166,8 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def _resolve_env_vars(data: dict) -> dict:
+    result: dict = {}
     """Resuelve variables de entorno en valores string."""
-    result = {}
     for key, value in data.items():
         if isinstance(value, dict):
             result[key] = _resolve_env_vars(value)
@@ -187,9 +186,7 @@ def _parse_providers(raw: dict) -> dict[str, ProviderConfig]:
     for name, cfg in providers_raw.items():
         if isinstance(cfg, dict):
             enabled = cfg.pop("enabled", True)
-            providers[name] = ProviderConfig(
-                name=name, enabled=enabled, settings=cfg
-            )
+            providers[name] = ProviderConfig(name=name, enabled=enabled, settings=cfg)
         else:
             providers[name] = ProviderConfig(name=name, enabled=bool(cfg))
     return providers
