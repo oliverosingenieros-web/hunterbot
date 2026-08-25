@@ -45,25 +45,27 @@ class AmazonProvider(BaseProvider):
                 return []
 
             parser = HTMLParser(resp.text)
-            cards = parser.css('[data-component-type="s-search-result"]')
+            cards = self.css_from_config(parser, "card")
+            if not cards:
+                cards = parser.css('[data-component-type="s-search-result"]')
 
             for card in cards:
                 asin = card.attributes.get("data-asin") or ""
                 if not asin:
                     continue
 
-                title_el = card.css_first("h2 a span") or card.css_first("h2")
+                title_el = self.css_first_from_config(card, "title") or card.css_first("h2 a span") or card.css_first("h2")
                 title = title_el.text(strip=True) if title_el else "Producto Amazon"
 
-                link_el = card.css_first("h2 a")
+                link_el = self.css_first_from_config(card, "link") or card.css_first("h2 a")
                 href = link_el.attributes.get("href") or "" if link_el else f"/dp/{asin}"
                 full_url = (
                     f"https://www.{domain}{href}" if href.startswith("/") else href
                 )
 
                 # Precios
-                price_whole = card.css_first(".a-price-whole")
-                price_fraction = card.css_first(".a-price-fraction")
+                price_whole = self.css_first_from_config(card, "price_whole") or card.css_first(".a-price-whole")
+                price_fraction = self.css_first_from_config(card, "price_fraction") or card.css_first(".a-price-fraction")
                 price = 0.0
                 if price_whole:
                     whole = re.sub(r"[^\d]", "", price_whole.text(strip=True))
@@ -78,7 +80,7 @@ class AmazonProvider(BaseProvider):
                         price = 0.0
 
                 # Precio original (si hay descuento)
-                orig_price_el = card.css_first(
+                orig_price_el = self.css_first_from_config(card, "original_price") or card.css_first(
                     ".a-price.a-text-price .a-offscreen"
                 ) or card.css_first(".a-text-price")
                 original_price = None
@@ -92,7 +94,7 @@ class AmazonProvider(BaseProvider):
                         pass
 
                 # Rating
-                rating_el = card.css_first(
+                rating_el = self.css_first_from_config(card, "rating") or card.css_first(
                     "i.a-icon-star-small span"
                 ) or card.css_first(".a-icon-alt")
                 rating = None
@@ -105,7 +107,7 @@ class AmazonProvider(BaseProvider):
                             pass
 
                 # Imagen
-                img_el = card.css_first("img.s-image")
+                img_el = self.css_first_from_config(card, "image") or card.css_first("img.s-image")
                 img_url = (img_el.attributes.get("src") or "") if img_el else None
 
                 items.append(
