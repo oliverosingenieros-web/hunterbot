@@ -8,8 +8,8 @@ from urllib.parse import quote_plus
 from selectolax.parser import HTMLParser
 
 from hunterbot.models import Item, ItemCategory, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 from hunterbot.providers.web_search import extract_price
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,9 @@ class ThermomixProvider(BaseProvider):
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "Accept-Language": "es-ES,es;q=0.9",
             }
-            resp = await self.http.get(url, headers=extra_headers, rate_limit=self.default_rate_limit)
+            resp = await self.http.get(
+                url, headers=extra_headers, rate_limit=self.default_rate_limit
+            )
             if resp.status_code != 200:
                 logger.warning("Thermomix (Bing) returned status %d", resp.status_code)
                 return []
@@ -54,7 +56,7 @@ class ThermomixProvider(BaseProvider):
                 if not link_el:
                     continue
 
-                href = link_el.attributes.get("href", "")
+                href = link_el.attributes.get("href") or ""
                 if "vorwerk.com" not in href:
                     continue
 
