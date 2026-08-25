@@ -1,0 +1,61 @@
+# Configuración dinámica de selectores CSS para los providers
+# Si una página cambia su estructura, se puede modificar este archivo sin tocar el código Python.
+
+amazon:
+  card: ['[data-component-type="s-search-result"]']
+  title: ['h2 a span', 'h2']
+  link: ['h2 a']
+  price_whole: ['.a-price-whole']
+  price_fraction: ['.a-price-fraction']
+  original_price: ['.a-price.a-text-price .a-offscreen', '.a-text-price']
+  rating: ['i.a-icon-star-small span', '.a-icon-alt']
+  image: ['img.s-image']
+
+boat24:
+  card: ['.blist__item', '.row.blist', 'article']
+  title: ['.blist__title', 'h3', 'h2']
+  link: ['a[href*="/detalle/"]', 'a']
+  price: ['.blist__price', '[class*="price"]']
+
+fotocasa:
+  json_ld: ['script[type="application/ld+json"]']
+  card: ['article.re-Card', '.re-CardPackMinimal', '[class*="re-Card"]']
+  link: ['a.re-Card-link', 'a[href*="/inmueble/"]', 'a']
+  price: ['.re-CardPrice', '[class*="Price"]']
+  title: ['.re-Card-title', '[class*="Title"]']
+
+topbarcos:
+  card: ['.anuncio', '.anuncio-list', 'article']
+  title: ['.titulo a', 'h2 a', 'h3 a']
+  link: ['.titulo a', 'h2 a', 'h3 a']
+  price: ['.precio', '.price']
+  image: ['.foto img', 'img.foto']
+  details: ['.detalles', '.caracteristicas', '.info']
+
+cosasdebarcos:
+  card: ['.result-item', '.boat-item', 'article']
+  title: ['.title a', 'h2 a', 'h3 a']
+  link: ['.title a', 'h2 a', 'h3 a']
+  price: ['.price', '.precio']
+
+chollometro:
+  card: ['article.thread', 'article']
+  title: ['strong.thread-title', '.thread-title', 'a.thread-title']
+  link: ['a.thread-title', 'a.thread-link']
+  price: ['span.thread-price', '.thread-price']
+  original_price: ['span.mute--text', '.thread-original-price']
+  temperature: ['span.space--h-2', '.vote-temp']
+
+pisos_com:
+  card: ['.ad-preview', '.row.ad', 'div[data-id]']
+  link: ['a.ad-preview__title', 'a.title']
+  title: ['a.ad-preview__title', 'h2', 'h3']
+  price: ['.ad-preview__price', '.price']
+  size: ['.ad-preview__size', '.size']
+  image: ['img.ad-preview__img', 'img']
+
+wallapop:
+  card: ['a.ItemCardList__item', 'a.card-product', 'a']
+  title: ['.ItemCardList__title', '.card-product-title', 'p.title']
+  price: ['.ItemCardList__price', '.card-product-price', 'p.price']
+  image: ['img.ItemCardList__image', 'img']
