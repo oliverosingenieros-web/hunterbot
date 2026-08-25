@@ -752,9 +752,17 @@ class InteractiveTelegramBot:
             # 4. Análisis comparativo con IA
             analysis = await self.ai.analyze_results(text, items_for_ai)
             if analysis:
+                quota_msg = ""
+                idealista_provider = next((p for p in engine.providers if p.name == "idealista"), None)
+                if idealista_provider and hasattr(idealista_provider, "_quota_usage"):
+                    usage = idealista_provider._quota_usage
+                    days = idealista_provider._quota_days
+                    if usage > 0:
+                        quota_msg = f"\n\n📊 *Cuota Idealista API*: {100 - usage}/100 restantes. Quedan {days} días (fin: 25/11/26)."
+
                 reply_analysis = (
-                    f"🧠 RECOMENDACIÓN DEL ASESOR:\n\n{analysis}\n\n"
-                    f"💬 Puedes preguntarme dudas, o pedirme: 'Sigue buscando cada 7 días' para mantener este tema actualizado."
+                    f"🤖 RECOMENDACIÓN DEL ASESOR:\n\n{analysis}\n\n"
+                    f"💡 Puedes preguntarme dudas, o pedirme: 'Sigue buscando cada 7 días' para mantener este tema actualizado.{quota_msg}"
                 )
                 await self.send_message(
                     chat_id,
