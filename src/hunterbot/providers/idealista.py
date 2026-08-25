@@ -6,11 +6,9 @@ import base64
 import logging
 from typing import Any
 
-import httpx
-
 from hunterbot.models import Item, ItemCategory, Operation, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +55,9 @@ class IdealistaProvider(BaseProvider):
             raise ValueError("Faltan api_key o api_secret para Idealista")
 
         credentials = f"{api_key}:{api_secret}"
-        encoded_credentials = base64.b64encode(credentials.encode("utf-8")).decode("utf-8")
+        encoded_credentials = base64.b64encode(credentials.encode("utf-8")).decode(
+            "utf-8"
+        )
 
         url = f"{self.base_url}/oauth/token"
         headers = {
@@ -66,7 +66,9 @@ class IdealistaProvider(BaseProvider):
         }
         data = {"grant_type": "client_credentials"}
 
-        response = await self.http.post(url, data=data, headers=headers, rate_limit=self.default_rate_limit)
+        response = await self.http.post(
+            url, data=data, headers=headers, rate_limit=self.default_rate_limit
+        )
         response.raise_for_status()
         json_data = response.json()
         self._token = json_data.get("access_token")
@@ -96,7 +98,9 @@ class IdealistaProvider(BaseProvider):
         params: dict[str, Any] = {
             "country": "es",
             "operation": "sale" if criteria.operation == Operation.SALE else "rent",
-            "propertyType": criteria.property_types[0] if criteria.property_types else "homes",
+            "propertyType": criteria.property_types[0]
+            if criteria.property_types
+            else "homes",
             "locale": "es",
             "maxItems": 50,
         }
@@ -116,7 +120,9 @@ class IdealistaProvider(BaseProvider):
 
         items: list[Item] = []
         try:
-            resp = await self.http.get(url, headers=headers, params=params, rate_limit=self.default_rate_limit)
+            resp = await self.http.get(
+                url, headers=headers, params=params, rate_limit=self.default_rate_limit
+            )
             resp.raise_for_status()
             data = resp.json()
             element_list = data.get("elementList", [])
@@ -129,10 +135,14 @@ class IdealistaProvider(BaseProvider):
                     id=item_id,
                     provider=self.name,
                     category=ItemCategory.REAL_ESTATE,
-                    title=el.get("suggestedTexts", {}).get("title") or el.get("propertyType", "Inmueble"),
+                    title=el.get("suggestedTexts", {}).get("title")
+                    or el.get("propertyType", "Inmueble"),
                     price=price,
-                    url=el.get("url") or f"https://www.idealista.com/inmueble/{el.get('propertyCode')}/",
-                    location=f"{el.get('municipality', '')}, {el.get('district', '')}".strip(", "),
+                    url=el.get("url")
+                    or f"https://www.idealista.com/inmueble/{el.get('propertyCode')}/",
+                    location=f"{el.get('municipality', '')}, {el.get('district', '')}".strip(
+                        ", "
+                    ),
                     latitude=el.get("latitude"),
                     longitude=el.get("longitude"),
                     size_m2=size,
