@@ -119,21 +119,21 @@ class FotocasaProvider(BaseProvider):
                     continue
 
             if not items:
-                articles = (
+                articles = self.css_from_config(parser, "card") or (
                     parser.css("article.re-Card")
                     or parser.css(".re-CardPackMinimal")
                     or parser.css("[class*='re-Card']")
                 )
                 for art in articles:
-                    link_el = (
+                    link_el = self.css_first_from_config(art, "link") or (
                         art.css_first("a.re-Card-link")
                         or art.css_first("a[href*='/inmueble/']")
                         or art.css_first("a")
                     )
-                    price_el = art.css_first(".re-CardPrice") or art.css_first(
+                    price_el = self.css_first_from_config(art, "price") or art.css_first(".re-CardPrice") or art.css_first(
                         "[class*='Price']"
                     )
-                    title_el = art.css_first(".re-Card-title") or art.css_first(
+                    title_el = self.css_first_from_config(art, "title") or art.css_first(".re-Card-title") or art.css_first(
                         "[class*='Title']"
                     )
 
