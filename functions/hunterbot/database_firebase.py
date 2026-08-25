@@ -38,9 +38,38 @@ class FirestoreDatabase:
                     firebase_admin.initialize_app()
             self.db = firestore.client()
             self.enabled = True
-            logger.info("🔥 Conectado a Cloud Firestore exitosamente.")
+            logger.info("✅ Conectado a Cloud Firestore exitosamente.")
         except Exception as e:
-            logger.error("No se pudo inicializar Firebase Firestore: %s", e)
+            logger.error("❌ Error inicializando Firestore: %s", e)
+
+    def track_idealista_usage(self) -> tuple[int, int]:
+        """Rastrea el uso de Idealista por mes y devuelve (usos_este_mes, dias_restantes_api)."""
+        if not self.enabled:
+            return 0, 0
+            
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        month_key = f"{now.year}_{now.month:02d}"
+        
+        doc_ref = self.db.collection("api_quotas").document(f"idealista_{month_key}")
+        
+        try:
+            doc = doc_ref.get()
+            usage = 1
+            if doc.exists:
+                usage = doc.to_dict().get("used", 0) + 1
+                
+            doc_ref.set({"used": usage, "last_used": now.isoformat()}, merge=True)
+            
+            # 3 meses desde el 25/08/2026 -> 25/11/2026
+            end_date = datetime(2026, 11, 25, tzinfo=timezone.utc)
+            days_remaining = (end_date - now).days
+            
+            return usage, days_remaining
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("Error tracking Idealista quota: %s", e)
+            return 0, 0
 
     def is_message_already_processed(
         self, update_id: int | str, message_id: int | str
