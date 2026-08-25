@@ -98,15 +98,16 @@ class IdealistaProvider(BaseProvider):
         params: dict[str, Any] = {
             "country": "es",
             "operation": "sale" if criteria.operation == Operation.SALE else "rent",
-            "propertyType": criteria.property_types[0]
-            if criteria.property_types
-            else "homes",
-            "locale": "es",
+            "propertyType": criteria.property_types[0] if criteria.property_types else "homes",
             "maxItems": 50,
         }
 
-        if location_id:
+        if criteria.latitude and criteria.longitude:
+            params["center"] = f"{criteria.latitude},{criteria.longitude}"
+            params["distance"] = 15000  # Default 15km
+        elif location_id:
             params["locationId"] = location_id
+
         if criteria.price_min is not None:
             params["minPrice"] = int(criteria.price_min)
         if criteria.price_max is not None:
@@ -120,8 +121,8 @@ class IdealistaProvider(BaseProvider):
 
         items: list[Item] = []
         try:
-            resp = await self.http.get(
-                url, headers=headers, params=params, rate_limit=self.default_rate_limit
+            resp = await self.http.post(
+                url, headers=headers, data=params, rate_limit=self.default_rate_limit
             )
             resp.raise_for_status()
             data = resp.json()
