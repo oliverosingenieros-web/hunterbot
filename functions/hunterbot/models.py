@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -79,8 +79,8 @@ class Item:
     discount_percent: float | None = None
 
     # — Timestamps —
-    first_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    first_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # — Datos extra flexibles (provider-specific) —
     extra: dict[str, Any] = field(default_factory=dict)
@@ -189,7 +189,7 @@ class ZoneStats:
     std_dev: float
     sample_size: int
     avg_price_per_m2: float | None = None
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -200,4 +200,4 @@ class PriceDrop:
     old_price: float
     new_price: float
     drop_percent: float
-    detected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    detected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
