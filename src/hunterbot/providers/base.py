@@ -69,3 +69,49 @@ class BaseProvider(ABC):
     def _make_id(self, raw_id: str) -> str:
         """Crea un ID único con prefijo del provider: 'provider:raw_id'."""
         return f"{self.name}:{raw_id}"
+
+    def css_first_from_config(self, node: Any, field_key: str) -> Any:
+        """
+        Busca un elemento HTML en 'node' usando los selectores CSS definidos en
+        selectors.yaml para este provider y este campo.
+        Devuelve el primer elemento HTML encontrado o None.
+        """
+        # Obtenemos los selectores para este provider
+        provider_selectors = self.config.selectors.get(self.name, {})
+        # Obtenemos la lista de selectores para el campo (ej: 'title')
+        field_selectors = provider_selectors.get(field_key)
+        
+        if not field_selectors:
+            return None
+            
+        if isinstance(field_selectors, str):
+            field_selectors = [field_selectors]
+            
+        # Probamos cada selector en orden
+        for selector in field_selectors:
+            el = node.css_first(selector)
+            if el:
+                return el
+                
+        return None
+
+    def css_from_config(self, node: Any, field_key: str) -> list[Any]:
+        """
+        Igual que css_first_from_config pero devuelve todos los elementos.
+        Si encuentra coincidencias con el primer selector válido, las devuelve.
+        """
+        provider_selectors = self.config.selectors.get(self.name, {})
+        field_selectors = provider_selectors.get(field_key)
+        
+        if not field_selectors:
+            return []
+            
+        if isinstance(field_selectors, str):
+            field_selectors = [field_selectors]
+            
+        for selector in field_selectors:
+            els = node.css(selector)
+            if els:
+                return els
+                
+        return []
