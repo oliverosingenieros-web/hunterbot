@@ -86,6 +86,7 @@ class TelegramConfig:
     enabled: bool = False
     bot_token: str = ""
     group_chat_id: str = ""
+    admin_chat_id: str = ""
     topics: dict[str, int] = field(default_factory=dict)
     min_score: float = 7.5
 
@@ -215,11 +216,15 @@ def _parse_telegram(raw: dict) -> TelegramConfig:
     group_chat_id = tg.get("group_chat_id", "") or os.environ.get(
         "HUNTERBOT_TELEGRAM_CHAT_ID", ""
     )
+    admin_chat_id = tg.get("admin_chat_id", "") or os.environ.get(
+        "HUNTERBOT_TELEGRAM_ADMIN_CHAT_ID", ""
+    )
 
     return TelegramConfig(
         enabled=tg.get("enabled", False),
         bot_token=bot_token,
         group_chat_id=group_chat_id,
+        admin_chat_id=admin_chat_id,
         topics=tg.get("topics", {}),
         min_score=tg.get("min_score", 7.5),
     )
