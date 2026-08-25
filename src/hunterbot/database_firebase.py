@@ -135,3 +135,31 @@ class FirestoreDatabase:
             )
         except Exception as e:
             logger.debug("No se pudo guardar log de chat: %s", e)
+
+    def track_provider_health(self, provider_name: str, success: bool) -> int:
+        """
+        Trackea los fallos de un provider en Firestore.
+        Si success=True, resetea a 0.
+        Si success=False, incrementa fallos y devuelve el contador actual.
+        """
+        if not self.enabled:
+            return 0
+        try:
+            doc_ref = self.db.collection("system_health").document(provider_name)
+            doc = doc_ref.get()
+            current_fails = 0
+            
+            if doc.exists:
+                current_fails = doc.to_dict().get("consecutive_fails", 0)
+
+            if success:
+                if current_fails > 0:
+                    doc_ref.set({"consecutive_fails": 0, "last_success": datetime.now(UTC).isoformat()}, merge=True)
+                return 0
+            
+            new_fails = current_fails + 1
+            doc_ref.set({"consecutive_fails": new_fails, "last_fail": datetime.now(UTC).isoformat()}, merge=True)
+            return new_fails
+        except Exception as e:
+            logger.debug("Error trackeando salud del provider %s: %s", provider_name, e)
+            return 0
