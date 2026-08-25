@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -20,7 +20,9 @@ from hunterbot.engine import HunterEngine
 from hunterbot.models import ItemCategory, SearchCriteria
 from hunterbot.providers.web_search import extract_price
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # Memoria de contexto por hilo (topic) para conversación
@@ -29,7 +31,9 @@ _topic_context: dict[str, dict[str, Any]] = {}
 _processed_in_memory: set[str] = set()
 
 
-def _get_portal_direct_links(category: ItemCategory, query: str | None, location: str | None) -> str:
+def _get_portal_direct_links(
+    category: ItemCategory, query: str | None, location: str | None
+) -> str:
     """Genera accesos directos con filtros precargados a los portales líderes según la categoría."""
     terms = " ".join(filter(None, [query, location])).strip()
     encoded = urllib.parse.quote_plus(terms)
@@ -80,7 +84,9 @@ class InteractiveTelegramBot:
         self.ai = HunterAIAdvisor()
         self.db = FirestoreDatabase()
 
-    async def send_message(self, chat_id: str | int, text: str, thread_id: int | None = None) -> None:
+    async def send_message(
+        self, chat_id: str | int, text: str, thread_id: int | None = None
+    ) -> None:
         """Envía un mensaje a Telegram en texto plano."""
         async with httpx.AsyncClient(timeout=15.0) as client:
             payload: dict = {
@@ -94,7 +100,11 @@ class InteractiveTelegramBot:
             try:
                 resp = await client.post(f"{self.base_url}/sendMessage", json=payload)
                 if resp.status_code != 200:
-                    logger.error("Error enviando mensaje (status=%d): %s", resp.status_code, resp.text[:200])
+                    logger.error(
+                        "Error enviando mensaje (status=%d): %s",
+                        resp.status_code,
+                        resp.text[:200],
+                    )
             except Exception as e:
                 logger.error("Error HTTP enviando mensaje: %s", e)
 
@@ -161,31 +171,38 @@ class InteractiveTelegramBot:
                 f"   🔗 {item.url or 'Sin enlace'}"
             )
 
-            items_for_ai.append({
-                "n": i,
-                "title": title,
-                "price": item.price,
-                "provider": item.provider,
-                "url": item.url,
-                "location": item.location,
-                "size_m2": item.size_m2,
-                "length_m": item.length_m,
-                "beam_m": item.beam_m,
-                "engine_power_hp": item.engine_power_hp,
-                "engine_type": item.engine_type,
-                "engine_hours": item.engine_hours,
-                "has_trailer": item.has_trailer,
-                "year_built": item.year_built,
-                "land_type": item.land_type,
-                "utilities": item.utilities,
-                "highlights": item.highlights,
-                "description_raw": item.description,
-            })
+            items_for_ai.append(
+                {
+                    "n": i,
+                    "title": title,
+                    "price": item.price,
+                    "provider": item.provider,
+                    "url": item.url,
+                    "location": item.location,
+                    "size_m2": item.size_m2,
+                    "length_m": item.length_m,
+                    "beam_m": item.beam_m,
+                    "engine_power_hp": item.engine_power_hp,
+                    "engine_type": item.engine_type,
+                    "engine_hours": item.engine_hours,
+                    "has_trailer": item.has_trailer,
+                    "year_built": item.year_built,
+                    "land_type": item.land_type,
+                    "utilities": item.utilities,
+                    "highlights": item.highlights,
+                    "description_raw": item.description,
+                }
+            )
 
         return "\n\n".join(lines), items_for_ai
 
     async def _save_topic_subscription(
-        self, chat_id: int, thread_id: int, criteria: SearchCriteria, interval_days: int, original_query: str
+        self,
+        chat_id: int,
+        thread_id: int | None,
+        criteria: SearchCriteria,
+        interval_days: int,
+        original_query: str,
     ) -> None:
         """Guarda o actualiza una suscripción de búsqueda recurrente en Firestore para el tema actual."""
         if not self.db.enabled:
@@ -198,37 +215,61 @@ class InteractiveTelegramBot:
             "thread_id": thread_id,
             "query": criteria.query or original_query,
             "location": criteria.location,
-            "category": criteria.category.value,
+            "category": criteria.category.value if criteria.category else None,
             "price_max": criteria.price_max,
             "interval_days": interval_days,
             "original_prompt": original_query,
             "active": True,
-            "last_executed": datetime.now(timezone.utc).isoformat(),
+            "last_executed": datetime.now(UTC).isoformat(),
         }
         try:
             doc_ref.set(data, merge=True)
-            logger.info("Alerta recurrente guardada para thread %s (cada %d días)", thread_id, interval_days)
+            logger.info(
+                "Alerta recurrente guardada para thread %s (cada %d días)",
+                thread_id,
+                interval_days,
+            )
         except Exception as e:
             logger.error("Error guardando alerta recurrente: %s", e)
 
     async def _detect_and_set_recurring_alert(
-        self, chat_id: int, thread_id: int, text: str, context_dict: dict[str, Any]
+        self, chat_id: int, thread_id: int | None, text: str, context_dict: dict[str, Any]
     ) -> bool:
         """Detecta si el usuario está pidiendo rastreo recurrente (semanal, cada 10 días, mensual...)."""
         lower = text.lower()
         interval_days = 0
 
-        if "semanal" in lower or "cada semana" in lower or "cada 7 días" in lower or "cada 7 dias" in lower:
+        if (
+            "semanal" in lower
+            or "cada semana" in lower
+            or "cada 7 días" in lower
+            or "cada 7 dias" in lower
+        ):
             interval_days = 7
-        elif "cada 10 días" in lower or "cada 10 dias" in lower or "10 días" in lower or "10 dias" in lower:
+        elif (
+            "cada 10 días" in lower
+            or "cada 10 dias" in lower
+            or "10 días" in lower
+            or "10 dias" in lower
+        ):
             interval_days = 10
         elif "cada 15 días" in lower or "cada 15 dias" in lower or "quincenal" in lower:
             interval_days = 15
-        elif "mensual" in lower or "cada mes" in lower or "cada 30 días" in lower or "cada 30 dias" in lower:
+        elif (
+            "mensual" in lower
+            or "cada mes" in lower
+            or "cada 30 días" in lower
+            or "cada 30 dias" in lower
+        ):
             interval_days = 30
         elif "diario" in lower or "cada día" in lower or "cada dia" in lower:
             interval_days = 1
-        elif "seguir buscando" in lower or "sigue buscando" in lower or "busca recurrentemente" in lower or "avísame" in lower:
+        elif (
+            "seguir buscando" in lower
+            or "sigue buscando" in lower
+            or "busca recurrentemente" in lower
+            or "avísame" in lower
+        ):
             interval_days = 7
 
         if interval_days > 0:
@@ -240,7 +281,9 @@ class InteractiveTelegramBot:
                 price_max=crit_dict.get("price_max"),
             )
             original_query = context_dict.get("query", text)
-            await self._save_topic_subscription(chat_id, thread_id, criteria, interval_days, original_query)
+            await self._save_topic_subscription(
+                chat_id, thread_id, criteria, interval_days, original_query
+            )
 
             await self.send_message(
                 chat_id,
@@ -252,7 +295,9 @@ class InteractiveTelegramBot:
             return True
         return False
 
-    async def process_message(self, message: dict, update_id: int | None = None) -> None:
+    async def process_message(
+        self, message: dict, update_id: int | None = None
+    ) -> None:
         """Procesa un mensaje entrante de Telegram con deduplicación estricta."""
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "").strip()
@@ -269,16 +314,25 @@ class InteractiveTelegramBot:
         _processed_in_memory.add(dedup_key)
 
         if self.db.is_message_already_processed(update_id or 0, message_id or 0):
-            logger.info("⏭️ Mensaje ya procesado en Firestore omitido: %s_%s", update_id, message_id)
+            logger.info(
+                "⏭️ Mensaje ya procesado en Firestore omitido: %s_%s",
+                update_id,
+                message_id,
+            )
             return
 
-        logger.info("📩 Mensaje recibido (chat=%s, thread=%s): '%s'", chat_id, thread_id, text[:80])
+        logger.info(
+            "📩 Mensaje recibido (chat=%s, thread=%s): '%s'",
+            chat_id,
+            thread_id,
+            text[:80],
+        )
 
         from_user = message.get("from", {})
         if from_user.get("is_bot"):
             return
 
-        if text.startswith("/start") or text.startswith("/help"):
+        if text.startswith(("/start", "/help")):
             await self.send_message(
                 chat_id,
                 "🎯 ¡Hola! Soy HunterBot, tu asesor inteligente de compras e inversiones con IA.\n\n"
@@ -291,7 +345,11 @@ class InteractiveTelegramBot:
             )
             return
 
-        if text.startswith("/reporte") or "dame un reporte" in text.lower() or "reporte actual" in text.lower():
+        if (
+            text.startswith("/reporte")
+            or "dame un reporte" in text.lower()
+            or "reporte actual" in text.lower()
+        ):
             if thread_id:
                 await self._generate_topic_report(chat_id, thread_id)
                 return
@@ -302,24 +360,36 @@ class InteractiveTelegramBot:
         is_general = not thread_id or thread_id == 1
         topic_key = f"{chat_id}:{thread_id}"
 
-        if not is_general and ("detener" in text.lower() or "cancelar alerta" in text.lower() or "parar búsqueda" in text.lower()):
+        if not is_general and (
+            "detener" in text.lower()
+            or "cancelar alerta" in text.lower()
+            or "parar búsqueda" in text.lower()
+        ):
             if self.db.enabled:
                 doc_id = f"{chat_id}_{thread_id}"
-                self.db.db.collection("active_alerts").document(doc_id).update({"active": False})
-            await self.send_message(chat_id, "🛑 Búsqueda recurrente desactivada para este tema.", thread_id)
+                self.db.db.collection("active_alerts").document(doc_id).update(
+                    {"active": False}
+                )
+            await self.send_message(
+                chat_id, "🛑 Búsqueda recurrente desactivada para este tema.", thread_id
+            )
             return
 
         # Intercepción PRIORITARIA si el mensaje contiene una URL para examinarla directamente
         url_match = re.search(r"https?://[^\s]+", text)
         if url_match:
             clean_url = url_match.group(0).rstrip(")]>\"'")
-            handled = await self._handle_direct_url_analysis(chat_id, clean_url, text, thread_id)
+            handled = await self._handle_direct_url_analysis(
+                chat_id, clean_url, text, thread_id
+            )
             if handled:
                 return
 
         if not is_general and topic_key in _topic_context:
             context_data = _topic_context[topic_key]
-            is_recurrence = await self._detect_and_set_recurring_alert(chat_id, thread_id, text, context_data)
+            is_recurrence = await self._detect_and_set_recurring_alert(
+                chat_id, thread_id, text, context_data
+            )
             if is_recurrence:
                 return
 
@@ -328,19 +398,30 @@ class InteractiveTelegramBot:
 
         await self._handle_new_search(chat_id, text, thread_id, is_general)
 
-    async def _handle_followup(self, chat_id: int, text: str, thread_id: int, context_data: dict[str, Any]) -> None:
+    async def _handle_followup(
+        self, chat_id: int, text: str, thread_id: int | None, context_data: dict[str, Any]
+    ) -> None:
         """Maneja preguntas de seguimiento dentro de un tema existente."""
         context_str = json.dumps(context_data, ensure_ascii=False)
         logger.info("💬 Followup en tema %s: '%s'", thread_id, text[:50])
 
-        search_words = ["busca", "encuentra", "búscame", "quiero comprar", "necesito", "rastrea de nuevo"]
+        search_words = [
+            "busca",
+            "encuentra",
+            "búscame",
+            "quiero comprar",
+            "necesito",
+            "rastrea de nuevo",
+        ]
         is_new_search = any(w in text.lower() for w in search_words) and len(text) > 20
 
         if is_new_search:
             await self._handle_new_search(chat_id, text, thread_id, is_general=False)
             return
 
-        await self.send_message(chat_id, "🤔 Analizando tu consulta con el asesor...", thread_id)
+        await self.send_message(
+            chat_id, "🤔 Analizando tu consulta con el asesor...", thread_id
+        )
         response = await self.ai.chat_followup(text, context_str)
         reply = f"💡 {response}"
         await self.send_message(chat_id, reply, thread_id)
@@ -352,7 +433,9 @@ class InteractiveTelegramBot:
         context_data = _topic_context.get(topic_key, {})
         query = context_data.get("query", "tu búsqueda en este tema")
 
-        await self.send_message(chat_id, f"📊 Generando reporte actualizado para '{query}'...", thread_id)
+        await self.send_message(
+            chat_id, f"📊 Generando reporte actualizado para '{query}'...", thread_id
+        )
 
         crit_dict = context_data.get("criteria", {})
         criteria = SearchCriteria(
@@ -377,11 +460,17 @@ class InteractiveTelegramBot:
         finally:
             await engine.close()
 
-    async def _handle_direct_url_analysis(self, chat_id: int, url: str, user_prompt: str, thread_id: int | None) -> bool:
+    async def _handle_direct_url_analysis(
+        self, chat_id: int, url: str, user_prompt: str, thread_id: int | None
+    ) -> bool:
         """Si el usuario proporciona una URL específica, descarga la página, extrae las opciones y genera el peritaje."""
         try:
-            await self.send_message(chat_id, f"🔍 Entrando directamente a examinar el catálogo en:\n{url}", thread_id)
-            
+            await self.send_message(
+                chat_id,
+                f"🔍 Entrando directamente a examinar el catálogo en:\n{url}",
+                thread_id,
+            )
+
             headers = {
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -390,46 +479,81 @@ class InteractiveTelegramBot:
                 ),
                 "Accept-Language": "es-ES,es;q=0.9",
             }
-            async with httpx.AsyncClient(timeout=25.0, headers=headers, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=25.0, headers=headers, follow_redirects=True
+            ) as client:
                 resp = await client.get(url)
                 if resp.status_code != 200:
-                    await self.send_message(chat_id, f"⚠️ No se pudo acceder a la página ({resp.status_code}).", thread_id)
+                    await self.send_message(
+                        chat_id,
+                        f"⚠️ No se pudo acceder a la página ({resp.status_code}).",
+                        thread_id,
+                    )
                     return True
 
                 html = resp.text
                 parser = HTMLParser(html)
-                
+
                 # Extraer artículos/tarjetas de barcos del HTML
                 extracted_items = []
-                cards = parser.css(".c-pagination-item") or parser.css("article") or parser.css("li[class*='item']") or parser.css("div[class*='item']") or parser.css("div[class*='card']")
-                
+                cards = (
+                    parser.css(".c-pagination-item")
+                    or parser.css("article")
+                    or parser.css("li[class*='item']")
+                    or parser.css("div[class*='item']")
+                    or parser.css("div[class*='card']")
+                )
+
                 base_domain = urllib.parse.urlparse(url).netloc
                 scheme = urllib.parse.urlparse(url).scheme or "https"
 
                 for card in cards:
-                    t_el = card.css_first("a.enlacePrincipal") or card.css_first("h2") or card.css_first("h3") or card.css_first("a")
-                    link_el = card.css_first("a.enlacePrincipal") or card.css_first("a[href]")
-                    
+                    t_el = (
+                        card.css_first("a.enlacePrincipal")
+                        or card.css_first("h2")
+                        or card.css_first("h3")
+                        or card.css_first("a")
+                    )
+                    link_el = card.css_first("a.enlacePrincipal") or card.css_first(
+                        "a[href]"
+                    )
+
                     if t_el and link_el:
                         title = t_el.text(strip=True)
-                        if len(title) < 4 or title.lower() in ["recreo", "yates", "velero", "catalogo", "todas", "contacto"]:
+                        if len(title) < 4 or title.lower() in [
+                            "recreo",
+                            "yates",
+                            "velero",
+                            "catalogo",
+                            "todas",
+                            "contacto",
+                        ]:
                             continue
-                        
+
                         card_text = card.text(strip=True)
                         price = extract_price(card_text)
-                        
-                        href = link_el.attributes.get("href", "")
+
+                        href = link_el.attributes.get("href") or ""
                         if not href.startswith("http"):
-                            href = f"{scheme}://{base_domain}{href}" if href.startswith("/") else f"{scheme}://{base_domain}/{href}"
+                            href = (
+                                f"{scheme}://{base_domain}{href}"
+                                if href.startswith("/")
+                                else f"{scheme}://{base_domain}/{href}"
+                            )
 
                         # Heurística náutica avanzada para eslora y aptitud de remolque
-                        m_len = re.search(r"(\d{1,2}[.,]\d{1,2})\s*(?:m|metros)?", f"{title} {card_text}")
-                        m_num = re.search(r"\b(\d{3})\b", title) # Ej. Cap Ferret 522 -> 5.22m, Flyer 650 -> 6.5m
-                        m_feet = re.search(r"\b(\d{2})\b", title) # Ej. 37, 41 -> pies
-                        
+                        m_len = re.search(
+                            r"(\d{1,2}[.,]\d{1,2})\s*(?:m|metros)?",
+                            f"{title} {card_text}",
+                        )
+                        m_num = re.search(
+                            r"\b(\d{3})\b", title
+                        )  # Ej. Cap Ferret 522 -> 5.22m, Flyer 650 -> 6.5m
+                        m_feet = re.search(r"\b(\d{2})\b", title)  # Ej. 37, 41 -> pies
+
                         length_m = None
                         is_trailerable = False
-                        
+
                         if m_len:
                             length_m = float(m_len.group(1).replace(",", "."))
                         elif m_num:
@@ -438,29 +562,48 @@ class InteractiveTelegramBot:
                                 length_m = round(d / 100.0, 2)
                         elif m_feet:
                             ft = int(m_feet.group(1))
-                            if 14 <= ft <= 22:
-                                length_m = round(ft * 0.3048, 2)
-                            elif ft >= 28:
+                            if 14 <= ft <= 22 or ft >= 28:
                                 length_m = round(ft * 0.3048, 2)
 
                         if length_m and length_m <= 6.8:
                             is_trailerable = True
-                        elif any(k in title.lower() for k in ["sundeck", "open", "semirigida", "cap ferret", "cap camarat", "quick", "zar", "522", "550", "600", "650"]):
+                        elif any(
+                            k in title.lower()
+                            for k in [
+                                "sundeck",
+                                "open",
+                                "semirigida",
+                                "cap ferret",
+                                "cap camarat",
+                                "quick",
+                                "zar",
+                                "522",
+                                "550",
+                                "600",
+                                "650",
+                            ]
+                        ):
                             is_trailerable = True
                             if not length_m:
                                 length_m = 5.5
 
-                        extracted_items.append({
-                            "title": title,
-                            "price": price,
-                            "length_m": length_m,
-                            "is_trailerable": is_trailerable,
-                            "url": href,
-                            "raw_text": card_text[:200]
-                        })
+                        extracted_items.append(
+                            {
+                                "title": title,
+                                "price": price,
+                                "length_m": length_m,
+                                "is_trailerable": is_trailerable,
+                                "url": href,
+                                "raw_text": card_text[:200],
+                            }
+                        )
 
                 if not extracted_items:
-                    await self.send_message(chat_id, "⚠️ No se detectaron fichas de barcos legibles en esa URL.", thread_id)
+                    await self.send_message(
+                        chat_id,
+                        "⚠️ No se detectaron fichas de barcos legibles en esa URL.",
+                        thread_id,
+                    )
                     return True
 
                 # Filtrar los remolcables reales según el pedido del usuario
@@ -469,11 +612,24 @@ class InteractiveTelegramBot:
                     remolcables = extracted_items[:6]
 
                 # Formatear y enviar
-                lines = [f"🚢 BARCOS IDENTIFICADOS EN {base_domain.upper()} (Filtrado: Aptos para remolque < 6.8m):\n"]
+                lines = [
+                    f"🚢 BARCOS IDENTIFICADOS EN {base_domain.upper()} (Filtrado: Aptos para remolque < 6.8m):\n"
+                ]
                 for i, it in enumerate(remolcables[:8], 1):
-                    p_str = f"{it['price']:,.0f} €".replace(",", ".") if it["price"] > 0 else "Consultar precio"
-                    len_str = f" | Eslora est.: ~{it['length_m']}m" if it.get("length_m") else ""
-                    lines.append(f"{i}. {it['title']}{len_str}\n   💰 {p_str}\n   🔗 {it['url']}")
+                    price_val = float(str(it["price"])) if it.get("price") is not None else 0.0
+                    p_str = (
+                        f"{price_val:,.0f} €".replace(",", ".")
+                        if price_val > 0
+                        else "Consultar precio"
+                    )
+                    len_str = (
+                        f" | Eslora est.: ~{it['length_m']}m"
+                        if it.get("length_m")
+                        else ""
+                    )
+                    lines.append(
+                        f"{i}. {it['title']}{len_str}\n   💰 {p_str}\n   🔗 {it['url']}"
+                    )
 
                 print("DEBUG: Items extraídos:", len(remolcables))
                 await self.send_message(chat_id, "\n\n".join(lines), thread_id)
@@ -488,19 +644,29 @@ class InteractiveTelegramBot:
                         f"💡 Nota técnica sobre remolque en España: Límite legal sin transporte especial = 2,55 m de manga y MMA del remolque según vehículo tractor (B o B96/B+E)."
                     )
                     await self.send_message(chat_id, report_ai, thread_id)
-                    self.db.log_interaction(chat_id, thread_id, user_prompt, report_ai, event_type="url_analysis")
+                    self.db.log_interaction(
+                        chat_id,
+                        thread_id,
+                        user_prompt,
+                        report_ai,
+                        event_type="url_analysis",
+                    )
 
                 return True
         except Exception as e:
             logger.error("Error analizando URL directa: %s", e, exc_info=True)
             return False
 
-    async def _handle_new_search(self, chat_id: int, text: str, thread_id: int | None, is_general: bool) -> None:
+    async def _handle_new_search(
+        self, chat_id: int, text: str, thread_id: int | None, is_general: bool
+    ) -> None:
         """Ejecuta una nueva búsqueda completa activando únicamente las webs especializadas para la categoría."""
         # Comprobar si el usuario envió una URL concreta para examinarla
         url_match = re.search(r"https?://[^\s]+", text)
         if url_match:
-            handled = await self._handle_direct_url_analysis(chat_id, url_match.group(0), text, thread_id)
+            handled = await self._handle_direct_url_analysis(
+                chat_id, url_match.group(0), text, thread_id
+            )
             if handled:
                 return
 
@@ -509,7 +675,11 @@ class InteractiveTelegramBot:
 
         except Exception as e:
             logger.error("Error en IA: %s", e)
-            await self.send_message(chat_id, "⚠️ Error analizando tu petición. Inténtalo de nuevo.", thread_id)
+            await self.send_message(
+                chat_id,
+                "⚠️ Error analizando tu petición. Inténtalo de nuevo.",
+                thread_id,
+            )
             return
 
         criteria = consult["criteria"]
@@ -554,7 +724,9 @@ class InteractiveTelegramBot:
             if not filtered and results:
                 filtered = results[:8]
 
-            portal_links = _get_portal_direct_links(criteria.category, criteria.query, criteria.location)
+            portal_links = _get_portal_direct_links(
+                criteria.category, criteria.query, criteria.location
+            )
 
             if not filtered:
                 query_desc = criteria.query or criteria.location or "tu búsqueda"
@@ -589,7 +761,13 @@ class InteractiveTelegramBot:
                     reply_analysis,
                     target_thread,
                 )
-                self.db.log_interaction(chat_id, target_thread, text, reply_analysis, event_type="new_search")
+                self.db.log_interaction(
+                    chat_id,
+                    target_thread,
+                    text,
+                    reply_analysis,
+                    event_type="new_search",
+                )
 
             # 5. Guardar contexto
             topic_key = f"{chat_id}:{target_thread}"
@@ -628,9 +806,15 @@ class InteractiveTelegramBot:
                         data = resp.json()
                         updates = data.get("result", [])
                         for u in updates:
-                            self.last_update_id = u.get("update_id", self.last_update_id)
+                            self.last_update_id = u.get(
+                                "update_id", self.last_update_id
+                            )
                             if "message" in u:
-                                asyncio.create_task(self.process_message(u["message"], u.get("update_id")))
+                                asyncio.create_task(
+                                    self.process_message(
+                                        u["message"], u.get("update_id")
+                                    )
+                                )
                 except Exception as e:
                     logger.error("Error en loop de Telegram: %s", e)
                     await asyncio.sleep(5)
