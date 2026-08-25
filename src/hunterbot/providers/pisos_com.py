@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 from urllib.parse import quote
 
 from selectolax.parser import HTMLParser
 
 from hunterbot.models import Item, ItemCategory, Operation, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,10 @@ class PisosComProvider(BaseProvider):
             tipo = "locales"
         elif criteria.property_types and "homes" in criteria.property_types:
             tipo = "casas"
-        elif criteria.query and any(w in criteria.query.lower() for w in ["terreno", "parcela", "finca", "solar"]):
+        elif criteria.query and any(
+            w in criteria.query.lower()
+            for w in ["terreno", "parcela", "finca", "solar"]
+        ):
             tipo = "terrenos"
 
         url = f"{self.base_url}/{op}/{tipo}-{quote(loc)}/"
@@ -57,9 +59,13 @@ class PisosComProvider(BaseProvider):
 
         items: list[Item] = []
         try:
-            resp = await self.http.get(url, params=params, rate_limit=self.default_rate_limit)
+            resp = await self.http.get(
+                url, params=params, rate_limit=self.default_rate_limit
+            )
             if resp.status_code != 200:
-                logger.warning("Pisos.com returned status %d for URL: %s", resp.status_code, url)
+                logger.warning(
+                    "Pisos.com returned status %d for URL: %s", resp.status_code, url
+                )
                 return []
 
             parser = HTMLParser(resp.text)
@@ -68,12 +74,18 @@ class PisosComProvider(BaseProvider):
             for card in cards:
                 nav_url = card.attributes.get("data-navigate-url") or ""
                 link_el = card.css_first("a.ad-preview__title") or card.css_first("a")
-                href = nav_url or (link_el.attributes.get("href", "") if link_el else "")
+                href = nav_url or (
+                    link_el.attributes.get("href") or "" if link_el else ""
+                )
 
                 title_el = card.css_first(".ad-preview__title") or card.css_first("h3")
-                title = title_el.text(strip=True) if title_el else "Inmueble en Pisos.com"
+                title = (
+                    title_el.text(strip=True) if title_el else "Inmueble en Pisos.com"
+                )
 
-                price_el = card.css_first(".ad-preview__price") or card.css_first("[class*='price']")
+                price_el = card.css_first(".ad-preview__price") or card.css_first(
+                    "[class*='price']"
+                )
                 price_text = price_el.text(strip=True) if price_el else ""
                 price_digits = re.sub(r"[^\d]", "", price_text)
                 price = float(price_digits) if price_digits else 0.0
@@ -97,7 +109,9 @@ class PisosComProvider(BaseProvider):
                             title=title,
                             price=price,
                             size_m2=size_val,
-                            url=href if href.startswith("http") else f"{self.base_url}{href}",
+                            url=href
+                            if href.startswith("http")
+                            else f"{self.base_url}{href}",
                             location=criteria.location,
                         )
                     )
