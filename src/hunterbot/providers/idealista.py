@@ -124,6 +124,16 @@ class IdealistaProvider(BaseProvider):
             resp = await self.http.post(
                 url, headers=headers, data=params, rate_limit=self.default_rate_limit
             )
+            
+            try:
+                from hunterbot.database_firebase import FirestoreDatabase
+                fb_db = FirestoreDatabase()
+                usage, days_rem = fb_db.track_idealista_usage()
+                self._quota_usage = usage
+                self._quota_days = days_rem
+            except Exception as e:
+                logger.error("Error al contar cuota idealista: %s", e)
+                
             resp.raise_for_status()
             data = resp.json()
             element_list = data.get("elementList", [])
