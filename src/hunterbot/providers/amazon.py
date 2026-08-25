@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 from urllib.parse import quote_plus
 
 from selectolax.parser import HTMLParser
 
 from hunterbot.models import Item, ItemCategory, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,9 @@ class AmazonProvider(BaseProvider):
         if not query:
             return []
 
-        domain = (self.provider_config.get("domain") if self.provider_config else None) or "amazon.es"
+        domain = (
+            self.provider_config.get("domain") if self.provider_config else None
+        ) or "amazon.es"
         url = f"https://www.{domain}/s?k={quote_plus(query)}"
 
         items: list[Item] = []
@@ -47,7 +48,7 @@ class AmazonProvider(BaseProvider):
             cards = parser.css('[data-component-type="s-search-result"]')
 
             for card in cards:
-                asin = card.attributes.get("data-asin", "")
+                asin = card.attributes.get("data-asin") or ""
                 if not asin:
                     continue
 
@@ -55,8 +56,10 @@ class AmazonProvider(BaseProvider):
                 title = title_el.text(strip=True) if title_el else "Producto Amazon"
 
                 link_el = card.css_first("h2 a")
-                href = link_el.attributes.get("href", "") if link_el else f"/dp/{asin}"
-                full_url = f"https://www.{domain}{href}" if href.startswith("/") else href
+                href = link_el.attributes.get("href") or "" if link_el else f"/dp/{asin}"
+                full_url = (
+                    f"https://www.{domain}{href}" if href.startswith("/") else href
+                )
 
                 # Precios
                 price_whole = card.css_first(".a-price-whole")
@@ -64,24 +67,34 @@ class AmazonProvider(BaseProvider):
                 price = 0.0
                 if price_whole:
                     whole = re.sub(r"[^\d]", "", price_whole.text(strip=True))
-                    frac = re.sub(r"[^\d]", "", price_fraction.text(strip=True)) if price_fraction else "00"
+                    frac = (
+                        re.sub(r"[^\d]", "", price_fraction.text(strip=True))
+                        if price_fraction
+                        else "00"
+                    )
                     try:
                         price = float(f"{whole}.{frac}")
                     except ValueError:
                         price = 0.0
 
                 # Precio original (si hay descuento)
-                orig_price_el = card.css_first(".a-price.a-text-price .a-offscreen") or card.css_first(".a-text-price")
+                orig_price_el = card.css_first(
+                    ".a-price.a-text-price .a-offscreen"
+                ) or card.css_first(".a-text-price")
                 original_price = None
                 if orig_price_el:
-                    orig_digits = re.sub(r"[^\d,.]", "", orig_price_el.text(strip=True)).replace(",", ".")
+                    orig_digits = re.sub(
+                        r"[^\d,.]", "", orig_price_el.text(strip=True)
+                    ).replace(",", ".")
                     try:
                         original_price = float(orig_digits)
                     except ValueError:
                         pass
 
                 # Rating
-                rating_el = card.css_first("i.a-icon-star-small span") or card.css_first(".a-icon-alt")
+                rating_el = card.css_first(
+                    "i.a-icon-star-small span"
+                ) or card.css_first(".a-icon-alt")
                 rating = None
                 if rating_el:
                     m = re.search(r"(\d+[\.,]?\d*)", rating_el.text(strip=True))
@@ -93,7 +106,7 @@ class AmazonProvider(BaseProvider):
 
                 # Imagen
                 img_el = card.css_first("img.s-image")
-                img_url = img_el.attributes.get("src") if img_el else None
+                img_url = (img_el.attributes.get("src") or "") if img_el else None
 
                 items.append(
                     Item(
