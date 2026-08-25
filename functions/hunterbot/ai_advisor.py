@@ -6,8 +6,8 @@ import json
 import logging
 import os
 import re
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Any
 
 from hunterbot.models import ItemCategory, Operation, SearchCriteria
@@ -19,11 +19,8 @@ MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
 
 
 def _get_default_key() -> str:
-    """Obtiene la API key desde env var o valor por defecto."""
-    k = os.environ.get("GEMINI_API_KEY", "")
-    if not k:
-        k = ".".join(["AQ", "Ab8RN6JRyA6gooUdz3xGd55Z2q1JRuiH0cDedMTzgEPVZTO4jw"])
-    return k
+    """Obtiene la API key desde env var."""
+    return os.environ.get("GEMINI_API_KEY", "")
 
 
 class HunterAIAdvisor:
@@ -91,7 +88,11 @@ class HunterAIAdvisor:
 
                             cleaned_text = "\n\n".join(clean_lines).strip()
                             if cleaned_text:
-                                logger.info("IA respondió con modelo %s (%d chars)", model_name, len(cleaned_text))
+                                logger.info(
+                                    "IA respondió con modelo %s (%d chars)",
+                                    model_name,
+                                    len(cleaned_text),
+                                )
                                 return cleaned_text
                             return text.strip()
             except Exception as e:
@@ -178,9 +179,16 @@ class HunterAIAdvisor:
         if clean_q:
             # Eliminar URLs o frases conversacionales largas del query para los buscadores
             clean_q = re.sub(r"https?://\S+", "", clean_q)
-            clean_q = re.sub(r"^(?:búscame|buscame|encuéntrame|encuentrame|quiero|necesito|según tu opinión|segun tu opinion|en esta página|en esta pagina)\s*", "", clean_q, flags=re.IGNORECASE).strip()
+            clean_q = re.sub(
+                r"^(?:búscame|buscame|encuéntrame|encuentrame|quiero|necesito|según tu opinión|segun tu opinion|en esta página|en esta pagina)\s*",
+                "",
+                clean_q,
+                flags=re.IGNORECASE,
+            ).strip()
         if not clean_q or len(clean_q) < 3:
-            clean_q = "barcos remolcables" if cat == ItemCategory.BOAT else "oportunidades"
+            clean_q = (
+                "barcos remolcables" if cat == ItemCategory.BOAT else "oportunidades"
+            )
 
         criteria = SearchCriteria(
             category=cat,
@@ -200,7 +208,9 @@ class HunterAIAdvisor:
             "advice": data.get("advice") or "Analizando mercado en tiempo real...",
         }
 
-    async def analyze_results(self, user_query: str, results: list[dict[str, Any]]) -> str:
+    async def analyze_results(
+        self, user_query: str, results: list[dict[str, Any]]
+    ) -> str:
         """Analiza los resultados encontrados y da una recomendación rigurosa en español según la vertical."""
         if not results:
             return ""
@@ -211,7 +221,11 @@ class HunterAIAdvisor:
         items_summary = []
         for r in results[:8]:
             title = r.get("title", "Barco")
-            price = f"{r.get('price', 0):,.0f} €" if r.get("price", 0) > 0 else "Consultar precio"
+            price = (
+                f"{r.get('price', 0):,.0f} €"
+                if r.get("price", 0) > 0
+                else "Consultar precio"
+            )
             length = f"Eslora: {r.get('length_m')}m" if r.get("length_m") else ""
             desc = r.get("raw_text") or r.get("description_raw") or ""
             items_summary.append(f"- {title} ({price}, {length}): {desc[:120]}")
@@ -247,28 +261,47 @@ class HunterAIAdvisor:
                 try:
                     data = json.loads(json_match.group(0))
                     clean_resp = (
-                        f"{data.get('mejor_eleccion', '')}\n\n"
-                        f"{data.get('detalles_tecnicos', '')}\n\n"
-                        f"{data.get('riesgos_gastos', '')}\n\n"
-                        f"{data.get('precio_negociacion', '')}"
-                    ).replace("**", "").replace("__", "").replace("```", "").strip()
+                        (
+                            f"{data.get('mejor_eleccion', '')}\n\n"
+                            f"{data.get('detalles_tecnicos', '')}\n\n"
+                            f"{data.get('riesgos_gastos', '')}\n\n"
+                            f"{data.get('precio_negociacion', '')}"
+                        )
+                        .replace("**", "")
+                        .replace("__", "")
+                        .replace("```", "")
+                        .strip()
+                    )
                     return clean_resp[:2000]
                 except json.JSONDecodeError:
                     pass
-            
+
             # Fallback: Extraer líneas con emojis si el JSON falla
-            fallback_lines = []
+            fallback_lines: list[str] = []
             for line in resp.split("\n"):
-                if any(e in line for e in ["🏆", "🔍", "⚠️", "🎯"]) or (fallback_lines and line.strip()):
+                if any(e in line for e in ["🏆", "🔍", "⚠️", "🎯"]) or (
+                    fallback_lines and line.strip()
+                ):
                     # Detenernos si empieza otro bloque de notas (Gemma artifact)
-                    if re.match(r"^\s*[*•-]?\s*(?:Subject|Role|Mission|Constraint|Drafting):", line, re.IGNORECASE):
+                    if re.match(
+                        r"^\s*[*•-]?\s*(?:Subject|Role|Mission|Constraint|Drafting):",
+                        line,
+                        re.IGNORECASE,
+                    ):
                         break
                     fallback_lines.append(line)
-            
-            if fallback_lines:
-                return "\n".join(fallback_lines).replace("**", "").replace("__", "").strip()[:2000]
 
-            clean_resp = resp.replace("**", "").replace("__", "").replace("```", "").strip()
+            if fallback_lines:
+                return (
+                    "\n".join(fallback_lines)
+                    .replace("**", "")
+                    .replace("__", "")
+                    .strip()[:2000]
+                )
+
+            clean_resp = (
+                resp.replace("**", "").replace("__", "").replace("```", "").strip()
+            )
             return clean_resp[:1200]
         return self._basic_analysis(results)
 
@@ -295,7 +328,12 @@ class HunterAIAdvisor:
 
         resp = self._call_model(system_instruction, user_content)
         if resp:
-            return resp.replace("**", "").replace("__", "").replace("```", "").strip()[:800]
+            return (
+                resp.replace("**", "")
+                .replace("__", "")
+                .replace("```", "")
+                .strip()[:800]
+            )
         return "No he podido procesar tu consulta en este momento."
 
     def _basic_analysis(self, results: list[dict[str, Any]]) -> str:
@@ -317,11 +355,21 @@ class HunterAIAdvisor:
     @staticmethod
     def _map_category(cat_str: str) -> ItemCategory:
         cat_lower = (cat_str or "other").lower()
-        if "estate" in cat_lower or "real" in cat_lower or "terreno" in cat_lower or "inmob" in cat_lower:
+        if (
+            "estate" in cat_lower
+            or "real" in cat_lower
+            or "terreno" in cat_lower
+            or "inmob" in cat_lower
+        ):
             return ItemCategory.REAL_ESTATE
         if "boat" in cat_lower or "barco" in cat_lower or "nautic" in cat_lower:
             return ItemCategory.BOAT
-        if "product" in cat_lower or "item" in cat_lower or "zapat" in cat_lower or "ordenad" in cat_lower:
+        if (
+            "product" in cat_lower
+            or "item" in cat_lower
+            or "zapat" in cat_lower
+            or "ordenad" in cat_lower
+        ):
             return ItemCategory.PRODUCT
         return ItemCategory.PRODUCT
 
@@ -341,11 +389,37 @@ class HunterAIAdvisor:
         query = user_prompt
 
         land_words = ["terreno", "parcela", "finca", "solar", "rústic", "rural"]
-        home_words = ["casa", "piso", "chalet", "ático", "vivienda", "apartamento", "dúplex", "adosado"]
+        home_words = [
+            "casa",
+            "piso",
+            "chalet",
+            "ático",
+            "vivienda",
+            "apartamento",
+            "dúplex",
+            "adosado",
+        ]
         premises_words = ["local", "oficina", "nave", "garaje", "trastero"]
-        boat_words = ["barco", "velero", "lancha", "yate", "catamaran", "embarcación",
-                       "zar", "formenti", "beneteau", "jeanneau", "bavaria", "hanse",
-                       "dufour", "lagoon", "fountaine", "zodiac", "quicksilver", "semirrigida"]
+        boat_words = [
+            "barco",
+            "velero",
+            "lancha",
+            "yate",
+            "catamaran",
+            "embarcación",
+            "zar",
+            "formenti",
+            "beneteau",
+            "jeanneau",
+            "bavaria",
+            "hanse",
+            "dufour",
+            "lagoon",
+            "fountaine",
+            "zodiac",
+            "quicksilver",
+            "semirrigida",
+        ]
 
         if any(w in lower for w in land_words):
             cat = ItemCategory.REAL_ESTATE
@@ -360,7 +434,9 @@ class HunterAIAdvisor:
             cat = ItemCategory.BOAT
 
         price_max = None
-        price_match = re.search(r"(?:menos de|por debajo de|hasta|máximo|max|<)\s*([\d.]+)", lower)
+        price_match = re.search(
+            r"(?:menos de|por debajo de|hasta|máximo|max|<)\s*([\d.]+)", lower
+        )
         if price_match:
             try:
                 price_max = float(price_match.group(1).replace(".", ""))
