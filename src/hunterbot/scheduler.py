@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 
 from hunterbot.config import load_config
 from hunterbot.engine import HunterEngine
 from hunterbot.models import ItemCategory, Operation, SearchCriteria
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # Búsquedas automáticas periódicas
@@ -48,14 +49,20 @@ async def run_loop():
             for job in CRON_JOBS:
                 logger.info("🔎 Ejecutando búsqueda periódica: %s", job["name"])
                 try:
-                    results = await engine.search_all(job["criteria"], project_name=job["project"])
-                    logger.info("Encontrados %d items para %s", len(results), job["name"])
+                    results = await engine.search_all(
+                        job["criteria"], project_name=job["project"]
+                    )
+                    logger.info(
+                        "Encontrados %d items para %s", len(results), job["name"]
+                    )
                 except Exception as e:
                     logger.error("Error ejecutando job %s: %s", job["name"], e)
         finally:
             await engine.close()
 
-        logger.info("💤 Durmiendo %d horas hasta el siguiente rastreo...", INTERVAL_HOURS)
+        logger.info(
+            "💤 Durmiendo %d horas hasta el siguiente rastreo...", INTERVAL_HOURS
+        )
         await asyncio.sleep(INTERVAL_HOURS * 3600)
 
 
