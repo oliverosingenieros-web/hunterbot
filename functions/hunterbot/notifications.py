@@ -88,3 +88,32 @@ class TelegramNotifier:
         except Exception as e:
             logger.error("Fallo al contactar API de Telegram: %s", e)
             return False
+
+    async def notify_health_alert(self, provider_name: str, issue: str) -> bool:
+        """Envía una alerta de salud del sistema al administrador."""
+        if not self.tg_cfg.enabled or not self.tg_cfg.bot_token or not self.tg_cfg.admin_chat_id:
+            return False
+
+        message = (
+            f"⚠️ *ALERTA DE SALUD: HUNTERBOT*\n\n"
+            f"El proveedor `{provider_name}` está reportando problemas continuos.\n"
+            f"Detalles: {issue}\n\n"
+            f"Revisa si ha cambiado el CSS de la página web o si el bot ha sido bloqueado por IP."
+        )
+
+        url = f"https://api.telegram.org/bot{self.tg_cfg.bot_token}/sendMessage"
+        payload: dict[str, Any] = {
+            "chat_id": self.tg_cfg.admin_chat_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+
+        try:
+            resp = await self.http.post(url, json=payload)
+            if resp.status_code == 200:
+                logger.info("Alerta de salud enviada a admin para %s", provider_name)
+                return True
+            logger.error("Error enviando alerta de salud: %s", resp.text)
+        except Exception as e:
+            logger.error("Fallo enviando alerta de salud: %s", e)
+        return False
