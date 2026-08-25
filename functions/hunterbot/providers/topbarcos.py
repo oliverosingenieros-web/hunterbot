@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 from urllib.parse import quote_plus
 
 from selectolax.parser import HTMLParser
 
 from hunterbot.models import Item, ItemCategory, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -42,18 +41,30 @@ class TopBarcosProvider(BaseProvider):
                 return []
 
             parser = HTMLParser(resp.text)
-            cards = parser.css(".barco-item") or parser.css("article") or parser.css(".listing-item")
+            cards = (
+                parser.css(".barco-item")
+                or parser.css("article")
+                or parser.css(".listing-item")
+            )
 
             for card in cards:
                 link_el = card.css_first("a[href*='/barcos/']") or card.css_first("a")
                 if not link_el:
                     continue
 
-                href = link_el.attributes.get("href", "")
-                title_el = card.css_first(".title") or card.css_first("h2") or card.css_first("h3")
-                title = title_el.text(strip=True) if title_el else link_el.text(strip=True)
+                href = link_el.attributes.get("href") or ""
+                title_el = (
+                    card.css_first(".title")
+                    or card.css_first("h2")
+                    or card.css_first("h3")
+                )
+                title = (
+                    title_el.text(strip=True) if title_el else link_el.text(strip=True)
+                )
 
-                price_el = card.css_first(".price") or card.css_first("[class*='precio']")
+                price_el = card.css_first(".price") or card.css_first(
+                    "[class*='precio']"
+                )
                 price_text = price_el.text(strip=True) if price_el else ""
                 price_digits = re.sub(r"[^\d]", "", price_text)
                 price = float(price_digits) if price_digits else 0.0
@@ -61,7 +72,9 @@ class TopBarcosProvider(BaseProvider):
                 # Extraer eslora / año si están presentes
                 text_content = card.text()
                 length_m = None
-                m_len = re.search(r"(\d+[\.,]?\d*)\s*m(?:etros)?", text_content, re.IGNORECASE)
+                m_len = re.search(
+                    r"(\d+[\.,]?\d*)\s*m(?:etros)?", text_content, re.IGNORECASE
+                )
                 if m_len:
                     try:
                         length_m = float(m_len.group(1).replace(",", "."))
@@ -86,7 +99,9 @@ class TopBarcosProvider(BaseProvider):
                             price=price,
                             length_m=length_m,
                             year_built=year_built,
-                            url=href if href.startswith("http") else f"{self.base_url}{href}",
+                            url=href
+                            if href.startswith("http")
+                            else f"{self.base_url}{href}",
                             location=criteria.location,
                         )
                     )
