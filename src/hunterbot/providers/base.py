@@ -30,7 +30,7 @@ class BaseProvider(ABC):
 
     def is_configured(self) -> bool:
         """Comprueba si el provider está habilitado y correctamente configurado.
-        
+
         Si no hay config.yaml (caso Cloud Functions), los providers que NO
         requieren API key se consideran activos por defecto.
         """
