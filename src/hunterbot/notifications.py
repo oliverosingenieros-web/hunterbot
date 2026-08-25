@@ -22,7 +22,9 @@ class TelegramNotifier:
 
     @property
     def is_enabled(self) -> bool:
-        return bool(self.tg_cfg.enabled and self.tg_cfg.bot_token and self.tg_cfg.group_chat_id)
+        return bool(
+            self.tg_cfg.enabled and self.tg_cfg.bot_token and self.tg_cfg.group_chat_id
+        )
 
     async def notify_opportunity(
         self,
@@ -42,7 +44,11 @@ class TelegramNotifier:
             thread_id = self.tg_cfg.topics.get(project_name)
 
         # Formato del mensaje
-        reasons_text = "\n".join([f"• {r}" for r in opp.reasons]) if opp.reasons else "• Buena relación calidad/precio"
+        reasons_text = (
+            "\n".join([f"• {r}" for r in opp.reasons])
+            if opp.reasons
+            else "• Buena relación calidad/precio"
+        )
         price_fmt = f"{item.price:,.0f} {item.currency}".replace(",", ".")
         m2_info = f" ({item.price_per_m2:.0f} €/m²)" if item.price_per_m2 else ""
 
@@ -72,7 +78,9 @@ class TelegramNotifier:
         try:
             resp = await self.http.post(url, json=payload)
             if resp.status_code == 200:
-                logger.info("Notificación Telegram enviada: %s (%s)", item.title, opp.score)
+                logger.info(
+                    "Notificación Telegram enviada: %s (%s)", item.title, opp.score
+                )
                 return True
             else:
                 logger.error("Error enviando a Telegram: %s", resp.text)
