@@ -6,6 +6,7 @@ import asyncio
 import logging
 import random
 import time
+from typing import Self
 from urllib.parse import urlparse
 
 import httpx
@@ -77,7 +78,7 @@ class HunterHTTPClient:
         """Cierra el cliente HTTP."""
         await self._client.aclose()
 
-    async def __aenter__(self) -> HunterHTTPClient:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *args: object) -> None:
@@ -172,9 +173,7 @@ class HunterHTTPClient:
                     raise
 
         # Si llegamos aquí, todos los intentos fallaron
-        raise httpx.HTTPError(
-            f"Todos los reintentos agotados para {url}"
-        )
+        raise httpx.HTTPError(f"Todos los reintentos agotados para {url}")
 
     async def post(
         self,
