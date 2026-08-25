@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-import math
 import statistics
 from typing import Any
 
-from hunterbot.config import HunterConfig, ScoringWeights
+from hunterbot.config import HunterConfig
 from hunterbot.models import Item, ItemCategory, OpportunityScore, ZoneStats
 
 logger = logging.getLogger(__name__)
@@ -56,7 +55,9 @@ class ScoringEngine:
         scored: list[OpportunityScore] = []
 
         for item in items:
-            opp = self.score_item(item, zone_stats=zone_stats, market_stats=market_stats)
+            opp = self.score_item(
+                item, zone_stats=zone_stats, market_stats=market_stats
+            )
             scored.append(opp)
 
         scored.sort(key=lambda x: x.score, reverse=True)
@@ -88,25 +89,37 @@ class ScoringEngine:
         factors: dict[str, float] = {}
         reasons: list[str] = []
 
-        median_ref = stats.median_price if stats and stats.median_price > 0 else (market_stats or {}).get("median_price")
+        median_ref = (
+            stats.median_price
+            if stats and stats.median_price > 0
+            else (market_stats or {}).get("median_price")
+        )
 
         # Factor 1: Precio vs Mediana
         if median_ref and median_ref > 0 and item.price > 0:
             diff_pct = ((median_ref - item.price) / median_ref) * 100
-            
+
             # Detección de posibles anomalías (precios excesivamente bajos que podrían ser alquileres o estafas)
             if diff_pct > 75:
                 factors["price_vs_zone_avg"] = 0.5
-                reasons.append("⚠️ Precio atípicamente bajo (verificar si es alquiler o proindiviso)")
+                reasons.append(
+                    "⚠️ Precio atípicamente bajo (verificar si es alquiler o proindiviso)"
+                )
             elif diff_pct >= 20:
                 factors["price_vs_zone_avg"] = 0.95
-                reasons.append(f"🔥 Oportunidad: {diff_pct:.0f}% por debajo de la mediana del mercado")
+                reasons.append(
+                    f"🔥 Oportunidad: {diff_pct:.0f}% por debajo de la mediana del mercado"
+                )
             elif diff_pct >= 5:
                 factors["price_vs_zone_avg"] = 0.8
-                reasons.append(f"{diff_pct:.0f}% por debajo de la media ({median_ref:,.0f} €)")
+                reasons.append(
+                    f"{diff_pct:.0f}% por debajo de la media ({median_ref:,.0f} €)"
+                )
             elif diff_pct < -20:
                 factors["price_vs_zone_avg"] = 0.35
-                reasons.append(f"Precio superior a la media de la zona ({abs(diff_pct):.0f}% por encima)")
+                reasons.append(
+                    f"Precio superior a la media de la zona ({abs(diff_pct):.0f}% por encima)"
+                )
             else:
                 factors["price_vs_zone_avg"] = 0.6
         else:
@@ -155,7 +168,9 @@ class ScoringEngine:
         ) * 10.0
 
         final_score = round(min(10.0, max(1.0, raw_score)), 1)
-        return OpportunityScore(item=item, score=final_score, factors=factors, reasons=reasons)
+        return OpportunityScore(
+            item=item, score=final_score, factors=factors, reasons=reasons
+        )
 
     def _score_boat(
         self,
@@ -172,13 +187,17 @@ class ScoringEngine:
             diff_pct = ((median_ref - item.price) / median_ref) * 100
             if diff_pct >= 20:
                 factors["price_vs_market"] = 0.95
-                reasons.append(f"🔥 Precio excepcional: {diff_pct:.0f}% inferior a la mediana ({median_ref:,.0f} €)")
+                reasons.append(
+                    f"🔥 Precio excepcional: {diff_pct:.0f}% inferior a la mediana ({median_ref:,.0f} €)"
+                )
             elif diff_pct >= 5:
                 factors["price_vs_market"] = 0.8
                 reasons.append(f"{diff_pct:.0f}% por debajo del valor medio de mercado")
             elif diff_pct < -20:
                 factors["price_vs_market"] = 0.4
-                reasons.append(f"Precio por encima de la media ({abs(diff_pct):.0f}% superior)")
+                reasons.append(
+                    f"Precio por encima de la media ({abs(diff_pct):.0f}% superior)"
+                )
             else:
                 factors["price_vs_market"] = 0.65
         else:
@@ -215,7 +234,9 @@ class ScoringEngine:
         ) * 10.0
 
         final_score = round(min(10.0, max(1.0, raw_score)), 1)
-        return OpportunityScore(item=item, score=final_score, factors=factors, reasons=reasons)
+        return OpportunityScore(
+            item=item, score=final_score, factors=factors, reasons=reasons
+        )
 
     def _score_product(
         self,
@@ -239,9 +260,13 @@ class ScoringEngine:
         else:
             factors["product_rating"] = 0.5
 
-        raw_score = (factors["discount_percent"] * 0.6 + factors["product_rating"] * 0.4) * 10.0
+        raw_score = (
+            factors["discount_percent"] * 0.6 + factors["product_rating"] * 0.4
+        ) * 10.0
         final_score = round(min(10.0, max(1.0, raw_score)), 1)
-        return OpportunityScore(item=item, score=final_score, factors=factors, reasons=reasons)
+        return OpportunityScore(
+            item=item, score=final_score, factors=factors, reasons=reasons
+        )
 
     def _score_generic(
         self,
