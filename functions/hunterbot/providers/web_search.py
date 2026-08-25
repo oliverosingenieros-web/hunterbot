@@ -13,8 +13,8 @@ from typing import Any
 from selectolax.parser import HTMLParser
 
 from hunterbot.models import Item, ItemCategory, SearchCriteria
-from hunterbot.providers.base import BaseProvider
 from hunterbot.providers import register
+from hunterbot.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,9 @@ def extract_price(text: str) -> float:
         return 0.0
 
     # 1. Formato estándar: "26.500 €", "26500€", "1.200.000 €"
-    m1 = re.search(r"(\d{1,3}(?:[.,]\d{3})+|\d{3,7})\s*(?:€|EUR|euros?)", text, re.IGNORECASE)
+    m1 = re.search(
+        r"(\d{1,3}(?:[.,]\d{3})+|\d{3,7})\s*(?:€|EUR|euros?)", text, re.IGNORECASE
+    )
     if m1:
         raw = m1.group(1).replace(".", "").replace(",", "")
         try:
@@ -107,7 +109,11 @@ def extract_price(text: str) -> float:
             pass
 
     # 4. Formato contextual: "precio: 26500", "por 35000", "venta 125.000"
-    m4 = re.search(r"(?:precio|venta|desde|por|oferta)\s*:?\s*(\d{1,3}(?:[.,]\d{3})+|\d{3,7})", text, re.IGNORECASE)
+    m4 = re.search(
+        r"(?:precio|venta|desde|por|oferta)\s*:?\s*(\d{1,3}(?:[.,]\d{3})+|\d{3,7})",
+        text,
+        re.IGNORECASE,
+    )
     if m4:
         raw = m4.group(1).replace(".", "").replace(",", "")
         try:
@@ -120,14 +126,18 @@ def extract_price(text: str) -> float:
     return 0.0
 
 
-def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
+def extract_metadata(text: str, category: ItemCategory | None) -> dict[str, Any]:
     """Extrae eslora, motor, horas, remolque, calificación de suelo, metros cuadrados y extras."""
     meta: dict[str, Any] = {"highlights": []}
     text_lower = text.lower()
 
     if category == ItemCategory.BOAT:
         # Eslora en metros (ej. "5.30 m", "5,70m", "10 metros")
-        m_len = re.search(r"(\d{1,2}[\.,]\d{1,2}|\d{1,2})\s*(?:m|metros|mts|eslora)", text, re.IGNORECASE)
+        m_len = re.search(
+            r"(\d{1,2}[\.,]\d{1,2}|\d{1,2})\s*(?:m|metros|mts|eslora)",
+            text,
+            re.IGNORECASE,
+        )
         if m_len:
             try:
                 l_val = float(m_len.group(1).replace(",", "."))
@@ -137,7 +147,11 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
                 pass
 
         # Manga (ej. "manga 2.45", "2,50 m manga")
-        m_beam = re.search(r"(?:manga\s*:?\s*)(\d{1,2}[\.,]\d{1,2})|(\d{1,2}[\.,]\d{1,2})\s*m?\s*manga", text, re.IGNORECASE)
+        m_beam = re.search(
+            r"(?:manga\s*:?\s*)(\d{1,2}[\.,]\d{1,2})|(\d{1,2}[\.,]\d{1,2})\s*m?\s*manga",
+            text,
+            re.IGNORECASE,
+        )
         if m_beam:
             try:
                 b_str = m_beam.group(1) or m_beam.group(2)
@@ -162,7 +176,16 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
             meta["highlights"].append(f"Motor con {m_hours.group(1)} horas")
 
         # Tipo de motor (Suzuki, Yamaha, Mercury, Honda, Evinrude, Volvo Penta, 4 tiempos)
-        for brand in ["suzuki", "yamaha", "mercury", "honda", "evinrude", "volvo penta", "yanmar", "tohatsu"]:
+        for brand in [
+            "suzuki",
+            "yamaha",
+            "mercury",
+            "honda",
+            "evinrude",
+            "volvo penta",
+            "yanmar",
+            "tohatsu",
+        ]:
             if brand in text_lower:
                 meta["engine_type"] = brand.title()
                 break
@@ -170,7 +193,11 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
             meta["highlights"].append("Motor 4 Tiempos")
 
         # ¿Incluye remolque?
-        if "remolque incluido" in text_lower or "con remolque" in text_lower or "incluye remolque" in text_lower:
+        if (
+            "remolque incluido" in text_lower
+            or "con remolque" in text_lower
+            or "incluye remolque" in text_lower
+        ):
             meta["has_trailer"] = True
             meta["highlights"].append("Remolque incluido en precio")
 
@@ -181,7 +208,11 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
 
     elif category == ItemCategory.REAL_ESTATE:
         # Metros cuadrados (ej. "1.500 m2", "85 m²")
-        m_sq = re.search(r"(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(?:m2|m²|metros cuadrados)", text, re.IGNORECASE)
+        m_sq = re.search(
+            r"(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(?:m2|m²|metros cuadrados)",
+            text,
+            re.IGNORECASE,
+        )
         if m_sq:
             try:
                 s_val = float(m_sq.group(1).replace(".", "").replace(",", ""))
@@ -190,15 +221,25 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
                 pass
 
         # Habitaciones
-        m_hab = re.search(r"(\d{1,2})\s*(?:hab|habitaciones|dormitorios)", text, re.IGNORECASE)
+        m_hab = re.search(
+            r"(\d{1,2})\s*(?:hab|habitaciones|dormitorios)", text, re.IGNORECASE
+        )
         if m_hab:
             meta["rooms"] = int(m_hab.group(1))
 
         # Calificación del suelo (Urbano, Urbanizable, Rústico)
-        if "urbano" in text_lower or "solar urbano" in text_lower or "edificable" in text_lower:
+        if (
+            "urbano" in text_lower
+            or "solar urbano" in text_lower
+            or "edificable" in text_lower
+        ):
             meta["land_type"] = "Urbano / Edificable"
             meta["highlights"].append("Suelo Urbano Edificable")
-        elif "rústico" in text_lower or "rustico" in text_lower or "agrario" in text_lower:
+        elif (
+            "rústico" in text_lower
+            or "rustico" in text_lower
+            or "agrario" in text_lower
+        ):
             meta["land_type"] = "Rústico / Agrario"
             meta["highlights"].append("Suelo Rústico")
 
@@ -218,9 +259,17 @@ def extract_metadata(text: str, category: ItemCategory) -> dict[str, Any]:
 
     else:
         # Productos
-        if "nuevo" in text_lower or "precintado" in text_lower or "a estrenar" in text_lower:
+        if (
+            "nuevo" in text_lower
+            or "precintado" in text_lower
+            or "a estrenar" in text_lower
+        ):
             meta["highlights"].append("Nuevo / Precintado")
-        if "factura" in text_lower or "garantía" in text_lower or "garantia" in text_lower:
+        if (
+            "factura" in text_lower
+            or "garantía" in text_lower
+            or "garantia" in text_lower
+        ):
             meta["highlights"].append("Con factura / Garantía oficial")
 
     return meta
@@ -269,7 +318,11 @@ class WebSearchProvider(BaseProvider):
 
             for idx, site in enumerate(target_sites):
                 q_term = base_q
-                if criteria.category == ItemCategory.BOAT and "venta" not in base_q.lower() and "precio" not in base_q.lower():
+                if (
+                    criteria.category == ItemCategory.BOAT
+                    and "venta" not in base_q.lower()
+                    and "precio" not in base_q.lower()
+                ):
                     q_term = f"{base_q} venta precio"
                 query = f"site:{site} {q_term}"
                 encoded = urllib.parse.quote_plus(query)
@@ -298,7 +351,7 @@ class WebSearchProvider(BaseProvider):
                                 continue
 
                             raw_title = link_el.text(strip=True)
-                            raw_url = link_el.attributes.get("href", "")
+                            raw_url = link_el.attributes.get("href") or ""
                             clean_url = unwrap_redirect_url(raw_url)
 
                             if clean_url in seen_urls:
@@ -311,7 +364,9 @@ class WebSearchProvider(BaseProvider):
 
                             seen_urls.add(clean_url)
 
-                            desc_el = card.css_first(".b_caption p") or card.css_first("p")
+                            desc_el = card.css_first(".b_caption p") or card.css_first(
+                                "p"
+                            )
                             snippet = desc_el.text(strip=True) if desc_el else ""
 
                             combined_text = f"{raw_title} {snippet}"
@@ -334,7 +389,7 @@ class WebSearchProvider(BaseProvider):
                                 Item(
                                     id=self._make_id(clean_url or clean_title),
                                     provider=portal_name,
-                                    category=criteria.category,
+                                    category=criteria.category or ItemCategory.OTHER,
                                     title=clean_title,
                                     price=price,
                                     url=clean_url,
@@ -380,7 +435,7 @@ class WebSearchProvider(BaseProvider):
                                 if not link_el:
                                     continue
                                 raw_title = link_el.text(strip=True)
-                                raw_url = link_el.attributes.get("href", "")
+                                raw_url = link_el.attributes.get("href") or ""
                                 clean_url = unwrap_redirect_url(raw_url)
 
                                 if clean_url in seen_urls:
@@ -399,7 +454,9 @@ class WebSearchProvider(BaseProvider):
                                 portal_name = site.split(".")[0]
 
                                 price = extract_price(combined_text)
-                                meta = extract_metadata(combined_text, criteria.category)
+                                meta = extract_metadata(
+                                    combined_text, criteria.category
+                                )
 
                                 clean_title = re.sub(
                                     r"\s*[-|–]\s*(?:Cosas de Barcos|TopBarcos|Milanuncios|Pisos\.com|Fotocasa|Idealista|Chollometro|Amazon|Subito).*",
@@ -415,7 +472,7 @@ class WebSearchProvider(BaseProvider):
                                     Item(
                                         id=self._make_id(clean_url or clean_title),
                                         provider=portal_name,
-                                        category=criteria.category,
+                                        category=criteria.category or ItemCategory.OTHER,
                                         title=clean_title,
                                         price=price,
                                         url=clean_url,
@@ -442,5 +499,7 @@ class WebSearchProvider(BaseProvider):
             return items
 
         items = await loop.run_in_executor(None, _fetch_all_sites)
-        logger.info("Rastreador web: %d anuncios extraídos para '%s'", len(items), base_q)
+        logger.info(
+            "Rastreador web: %d anuncios extraídos para '%s'", len(items), base_q
+        )
         return items
