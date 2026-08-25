@@ -76,17 +76,44 @@ class HunterEngine:
         results_nested = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_items: list[Item] = []
+        try:
+            from hunterbot.database_firebase import FirestoreDatabase
+            from hunterbot.notifications import TelegramNotifier
+            fs_db = FirestoreDatabase()
+            notifier = TelegramNotifier(self.config, self.http)
+        except Exception:
+            fs_db = None
+            notifier = None
+
         for i, res in enumerate(results_nested):
             p_name = target_providers[i].name
+            is_failure = False
+            issue_msg = ""
             if isinstance(res, Exception):
                 logger.error("Provider '%s' falló con excepción: %s", p_name, res)
+                is_failure = True
+                issue_msg = f"Excepción: {res}"
             elif isinstance(res, list):
                 logger.info("Provider '%s' devolvió %d items", p_name, len(res))
                 all_items.extend(res)
+                if len(res) == 0:
+                    is_failure = True
+                    issue_msg = "0 items devueltos (posible bloqueo o cambio CSS)"
             else:
                 logger.warning(
                     "Provider '%s' devolvió tipo inesperado: %s", p_name, type(res)
                 )
+                is_failure = True
+                issue_msg = "Tipo devuelto inesperado"
+
+            if fs_db and fs_db.enabled:
+                if is_failure:
+                    fails = fs_db.track_provider_health(p_name, success=False)
+                    if fails == 3 and notifier:
+                        # Enviar alerta a Telegram solo a la 3ª vez consecutiva
+                        await notifier.notify_health_alert(p_name, issue_msg)
+                else:
+                    fs_db.track_provider_health(p_name, success=True)
 
         logger.info("Total items agregados de todos los providers: %d", len(all_items))
 
