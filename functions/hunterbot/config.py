@@ -12,6 +12,9 @@ try:
 except ImportError:
     yaml = None
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 DEFAULT_CONFIG_PATHS = [
     Path("config.yaml"),
@@ -134,6 +137,7 @@ class HunterConfig:
     max_pages_per_provider: int = 3
     respect_robots_txt: bool = True
     log_level: str = "INFO"
+    selectors: dict[str, Any] = field(default_factory=dict)
     _raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def is_provider_enabled(self, name: str) -> bool:
@@ -231,17 +235,12 @@ def _parse_telegram(raw: dict) -> TelegramConfig:
 
 
 def load_config(path: Path | str | None = None) -> HunterConfig:
-    """Carga la configuración desde un archivo YAML.
-
-    Si no se especifica un path, busca en los paths por defecto.
-    Si no encuentra ningún archivo, usa valores por defecto.
-    """
+    """Carga la configuración desde un archivo YAML."""
     config_path: Path | None = None
 
     if path is not None:
         config_path = Path(path)
         if not config_path.exists():
-            # No crashear — usar defaults (necesario para Cloud Functions)
             config_path = None
     else:
         for candidate in DEFAULT_CONFIG_PATHS:
@@ -249,35 +248,38 @@ def load_config(path: Path | str | None = None) -> HunterConfig:
                 config_path = candidate
                 break
 
-    # Cargar YAML o usar defaults
     if config_path is not None and yaml is not None:
         with open(config_path, encoding="utf-8") as f:
             user_config = yaml.safe_load(f) or {}
     else:
         user_config = {}
 
-    # Merge con defaults
     raw = _deep_merge(_DEFAULTS, user_config)
     raw = _resolve_env_vars(raw)
 
-    # Override con variables de entorno específicas
     providers_raw = raw.get("providers", {})
     idealista_cfg = providers_raw.get("idealista", {})
     if not idealista_cfg.get("api_key"):
         idealista_cfg["api_key"] = os.environ.get("HUNTERBOT_IDEALISTA_API_KEY", "")
     if not idealista_cfg.get("api_secret"):
-        idealista_cfg["api_secret"] = os.environ.get(
-            "HUNTERBOT_IDEALISTA_API_SECRET", ""
-        )
+        idealista_cfg["api_secret"] = os.environ.get("HUNTERBOT_IDEALISTA_API_SECRET", "")
     if idealista_cfg.get("api_key") and idealista_cfg.get("api_secret"):
         idealista_cfg["enabled"] = True
 
-    # Parsear secciones
     providers = _parse_providers(raw)
     scoring, threshold = _parse_scoring(raw)
     telegram = _parse_telegram(raw)
 
-    # General
+    selectors: dict[str, Any] = {}
+    if config_path:
+        selectors_path = config_path.parent / "selectors.yaml"
+        if selectors_path.exists():
+            try:
+                with open(selectors_path, "r", encoding="utf-8") as f:
+                    selectors = yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.warning("No se pudo cargar selectors.yaml: %s", e)
+
     general = raw.get("general", {})
     db_path_str = general.get("database_path", "~/.hunterbot/hunterbot.db")
     db_path = Path(db_path_str).expanduser()
@@ -300,5 +302,6 @@ def load_config(path: Path | str | None = None) -> HunterConfig:
         max_pages_per_provider=general.get("max_pages_per_provider", 3),
         respect_robots_txt=general.get("respect_robots_txt", True),
         log_level=general.get("log_level", "INFO"),
+        selectors=selectors,
         _raw=raw,
     )
