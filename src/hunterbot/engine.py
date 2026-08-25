@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Sequence
 
 from hunterbot.analyzer import PriceAnalyzer
 from hunterbot.config import HunterConfig
 from hunterbot.database import Database
 from hunterbot.http_client import HunterHTTPClient
-from hunterbot.models import Item, ItemCategory, OpportunityScore, SearchCriteria, ZoneStats
+from hunterbot.models import (
+    Item,
+    ItemCategory,
+    OpportunityScore,
+    SearchCriteria,
+    ZoneStats,
+)
 from hunterbot.providers import create_active_providers
 from hunterbot.providers.base import BaseProvider
 from hunterbot.scoring import ScoringEngine
@@ -42,16 +47,22 @@ class HunterEngine:
         """Ejecuta la búsqueda en todos los providers coincidentes en paralelo."""
         target_providers = self.providers
         if criteria.provider and criteria.provider != "all":
-            target_providers = [p for p in self.providers if p.name == criteria.provider]
+            target_providers = [
+                p for p in self.providers if p.name == criteria.provider
+            ]
 
         if criteria.category:
             target_providers = [
-                p for p in target_providers
+                p
+                for p in target_providers
                 if p.category == criteria.category or p.category == ItemCategory.OTHER
             ]
 
         if not target_providers:
-            logger.warning("No hay providers activos para la búsqueda (categoría=%s)", criteria.category)
+            logger.warning(
+                "No hay providers activos para la búsqueda (categoría=%s)",
+                criteria.category,
+            )
             return []
 
         logger.info(
@@ -73,7 +84,9 @@ class HunterEngine:
                 logger.info("Provider '%s' devolvió %d items", p_name, len(res))
                 all_items.extend(res)
             else:
-                logger.warning("Provider '%s' devolvió tipo inesperado: %s", p_name, type(res))
+                logger.warning(
+                    "Provider '%s' devolvió tipo inesperado: %s", p_name, type(res)
+                )
 
         logger.info("Total items agregados de todos los providers: %d", len(all_items))
 
@@ -84,7 +97,11 @@ class HunterEngine:
         try:
             self.db.upsert_items(all_items)
             self.db.log_search(
-                {"query": criteria.query, "category": str(criteria.category), "location": criteria.location},
+                {
+                    "query": criteria.query,
+                    "category": str(criteria.category),
+                    "location": criteria.location,
+                },
                 criteria.provider,
                 len(all_items),
             )
@@ -117,11 +134,15 @@ class HunterEngine:
         # 4. Sincronizar en tiempo real con Cloud Firestore para alimentar Netlify
         try:
             from hunterbot.database_firebase import FirestoreDatabase
+
             fs_db = FirestoreDatabase()
             if fs_db.enabled:
                 for opp in scored[:12]:
                     fs_db.save_opportunity(opp)
-                logger.info("🔥 %d oportunidades sincronizadas con Firestore para Netlify", len(scored[:12]))
+                logger.info(
+                    "🔥 %d oportunidades sincronizadas con Firestore para Netlify",
+                    len(scored[:12]),
+                )
         except Exception as e:
             logger.warning("Error sincronizando con Firestore: %s", e)
 
