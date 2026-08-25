@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from hunterbot.models import Item, ItemCategory, PriceDrop
 
@@ -118,7 +118,7 @@ class Database:
             self._conn.close()
             self._conn = None
 
-    def __enter__(self) -> Database:
+    def __enter__(self) -> Self:
         self.connect()
         return self
 
@@ -283,9 +283,7 @@ class Database:
         rows = self.conn.execute(query, params).fetchall()
         return [self._row_to_item(row) for row in rows]
 
-    def get_items_by_zone(
-        self, zone: str, category: str | None = None
-    ) -> list[Item]:
+    def get_items_by_zone(self, zone: str, category: str | None = None) -> list[Item]:
         """Obtiene todos los items activos de una zona."""
         return self.get_items(location=zone, category=category, limit=500)
 
@@ -338,7 +336,9 @@ class Database:
 
         drops = []
         for row in rows:
-            drop_pct = ((row["first_price"] - row["current_price"]) / row["first_price"]) * 100
+            drop_pct = (
+                (row["first_price"] - row["current_price"]) / row["first_price"]
+            ) * 100
             drops.append(
                 PriceDrop(
                     item_id=row["id"],
@@ -389,7 +389,7 @@ class Database:
                 stats.get("std_dev"),
                 stats.get("avg_price_per_m2"),
                 stats.get("sample_size", 0),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         self.conn.commit()
@@ -424,9 +424,9 @@ class Database:
         categories = self.conn.execute(
             "SELECT category, COUNT(*) as c FROM items GROUP BY category"
         ).fetchall()
-        searches = self.conn.execute(
-            "SELECT COUNT(*) as c FROM searches"
-        ).fetchone()["c"]
+        searches = self.conn.execute("SELECT COUNT(*) as c FROM searches").fetchone()[
+            "c"
+        ]
 
         return {
             "total_items": total,
